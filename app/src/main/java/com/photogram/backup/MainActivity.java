@@ -3,6 +3,7 @@ package com.photogram.backup;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -29,24 +30,26 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
         listView = findViewById(R.id.folderListView);
         
+        // --- THIS IS THE PART FROM STEP 4 ---
+        // This button now actually OPENS the settings screen
         Button btnSettings = findViewById(R.id.btnSettings);
         btnSettings.setOnClickListener(v -> {
-            Toast.makeText(this, "Settings Page Coming in Next Sprint!", Toast.LENGTH_SHORT).show();
+            Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+            startActivity(intent);
         });
+        // ------------------------------------
 
         handlePermissions();
     }
 
     private void handlePermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Android 13+ logic
             if (checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.READ_MEDIA_IMAGES}, PERM_CODE);
             } else {
                 startAppLogic();
             }
         } else {
-            // Android 12 and below logic
             if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, PERM_CODE);
             } else {
@@ -60,13 +63,12 @@ public class MainActivity extends Activity {
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             startAppLogic();
         } else {
-            Toast.makeText(this, "Permission Denied. Please enable in App Info.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Permission Denied!", Toast.LENGTH_LONG).show();
         }
     }
 
     private void startAppLogic() {
         folders.clear();
-        // Look in DCIM and Pictures
         File dcim = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM);
         File pics = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
         
@@ -76,7 +78,6 @@ public class MainActivity extends Activity {
         setupAdapter();
     }
 
-    // This makes the app find ACTUAL folders inside DCIM (like Camera, Screenshots)
     private void addFoldersRecursive(File folder) {
         if (folder.isDirectory()) {
             folders.add(folder);
@@ -111,7 +112,6 @@ public class MainActivity extends Activity {
                 name.setText(folder.getName());
                 path.setText(folder.getAbsolutePath());
                 
-                // Remove previous listener to prevent recycling bugs
                 sw.setOnCheckedChangeListener(null);
                 sw.setChecked(prefs.getBoolean(folder.getAbsolutePath(), false));
 

@@ -7,6 +7,7 @@
 <uses-permission android:name="android.permission.INTERNET" />
 
     <application android:label="Photogram">
+    <activity android:name=".SettingsActivity" android:label="Telegram Settings" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
