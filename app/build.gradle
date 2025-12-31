@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'com.photogram.backup'
-    compileSdk 33
+    compileSdk 34 // Updated for late 2025 standards
 
     defaultConfig {
         applicationId "com.photogram.backup"
         minSdk 21
-        targetSdk 33
+        targetSdk 34
         versionCode 1
         versionName "1.0"
     }
@@ -28,12 +28,16 @@ android {
 }
 
 dependencies {
-    // OkHttp: Used for sending photos to Telegram API
-    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
-    
-    // WorkManager: Used for scheduling the background backup every hour
+    // 1. AndroidX Core (FIXES THE NOTIFICATION ERROR)
+    implementation 'androidx.core:core:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+
+    // 2. Automation Engine (Background Sync)
     implementation 'androidx.work:work-runtime:2.8.1'
-    
-    // JSON: Used for reading Telegram's responses
+
+    // 3. Internet Engine (Telegram Uploads)
+    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+
+    // 4. Data Engine (Reading Telegram responses)
     implementation 'org.json:json:20230227'
 }
