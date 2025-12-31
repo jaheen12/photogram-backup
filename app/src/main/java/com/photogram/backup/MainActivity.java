@@ -15,7 +15,6 @@ import android.view.ViewGroup;
 import android.widget.*;
 import java.io.File;
 import java.util.ArrayList;
-import java.util.HashSet;
 
 public class MainActivity extends Activity {
     ListView listView;
@@ -31,10 +30,17 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
         listView = findViewById(R.id.folderListView);
         
+        // Button 1: Open Settings
         Button btnSettings = findViewById(R.id.btnSettings);
         btnSettings.setOnClickListener(v -> {
             Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
             startActivity(intent);
+        });
+
+        // Button 2: Run a test backup
+        Button btnBackup = findViewById(R.id.btnStartBackup);
+        btnBackup.setOnClickListener(v -> {
+            new Thread(this::performManualBackup).start();
         });
 
         handlePermissions();
@@ -62,16 +68,10 @@ public class MainActivity extends Activity {
     }
 
     private void startAppLogic() {
-        // Show a loading toast because full scan takes a few seconds
-        Toast.makeText(this, "Scanning all folders for photos...", Toast.LENGTH_SHORT).show();
-        
         new Thread(() -> {
             imageFolders.clear();
-            // Start scanning from the very root of internal storage
             File root = Environment.getExternalStorageDirectory();
             recursiveScan(root);
-            
-            // Refresh UI on the main thread
             runOnUiThread(this::setupAdapter);
         }).start();
     }
@@ -79,36 +79,69 @@ public class MainActivity extends Activity {
     private void recursiveScan(File dir) {
         File[] files = dir.listFiles();
         if (files == null) return;
-
         boolean folderHasImages = false;
-
         for (File file : files) {
             if (file.isDirectory()) {
-                // Skip hidden folders (start with .) and system Android folder
                 if (!file.getName().startsWith(".") && !file.getName().equalsIgnoreCase("Android")) {
                     recursiveScan(file);
                 }
             } else {
-                // Check if this file is an image
                 String name = file.getName().toLowerCase();
-                if (name.endsWith(".jpg") || name.endsWith(".jpeg") || 
-                    name.endsWith(".png") || name.endsWith(".webp") || name.endsWith(".heic")) {
+                if (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png") || name.endsWith(".webp")) {
                     folderHasImages = true;
                 }
             }
         }
+        if (folderHasImages) imageFolders.add(dir);
+    }
 
-        // Only add the folder if it actually contains at least one image
-        if (folderHasImages) {
-            imageFolders.add(dir);
+    private void performManualBackup() {
+        String token = prefs.getString("bot_token", "");
+        String chatId = prefs.getString("chat_id", "");
+
+        if (token.isEmpty() || chatId.isEmpty()) {
+            runOnUiThread(() -> Toast.makeText(this, "Set Token/ID in Settings first!", Toast.LENGTH_LONG).show());
+            return;
         }
+
+        TelegramHelper helper = new TelegramHelper(token, chatId);
+        int uploadCount = 0;
+
+        for (File folder : imageFolders) {
+            // Check if user toggled this folder ON
+            if (prefs.getBoolean(folder.getAbsolutePath(), false)) {
+                try {
+                    // Check for existing Topic ID or create new one
+                    String topicKey = "topic_" + folder.getAbsolutePath();
+                    String threadId = prefs.getString(topicKey, "");
+
+                    if (threadId.isEmpty()) {
+                        runOnUiThread(() -> Toast.makeText(this, "Creating topic: " + folder.getName(), Toast.LENGTH_SHORT).show());
+                        threadId = helper.createTopic(folder.getName());
+                        prefs.edit().putString(topicKey, threadId).apply();
+                    }
+
+                    // Upload the first photo found as a test
+                    File[] files = folder.listFiles();
+                    if (files != null) {
+                        for (File f : files) {
+                            if (f.isFile() && f.getName().toLowerCase().endsWith(".jpg")) {
+                                boolean success = helper.uploadPhoto(f, threadId);
+                                if (success) uploadCount++;
+                                break; // Just one photo per folder for this test
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    runOnUiThread(() -> Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                }
+            }
+        }
+        final int finalCount = uploadCount;
+        runOnUiThread(() -> Toast.makeText(this, "Test Backup Finished. Uploaded: " + finalCount, Toast.LENGTH_LONG).show());
     }
 
     void setupAdapter() {
-        if (imageFolders.isEmpty()) {
-            Toast.makeText(this, "No photo folders found!", Toast.LENGTH_LONG).show();
-        }
-
         listView.setAdapter(new BaseAdapter() {
             @Override
             public int getCount() { return imageFolders.size(); }
@@ -119,22 +152,13 @@ public class MainActivity extends Activity {
             @Override
             public View getView(int i, View v, ViewGroup p) {
                 if (v == null) v = LayoutInflater.from(MainActivity.this).inflate(R.layout.folder_item, null);
-                
                 File folder = imageFolders.get(i);
-                TextView name = v.findViewById(R.id.folderName);
-                TextView path = v.findViewById(R.id.folderPath);
+                ((TextView)v.findViewById(R.id.folderName)).setText(folder.getName());
+                ((TextView)v.findViewById(R.id.folderPath)).setText(folder.getAbsolutePath());
                 Switch sw = v.findViewById(R.id.backupSwitch);
-
-                name.setText(folder.getName());
-                path.setText(folder.getAbsolutePath());
-                
                 sw.setOnCheckedChangeListener(null);
                 sw.setChecked(prefs.getBoolean(folder.getAbsolutePath(), false));
-
-                sw.setOnCheckedChangeListener((btn, isChecked) -> {
-                    prefs.edit().putBoolean(folder.getAbsolutePath(), isChecked).apply();
-                });
-
+                sw.setOnCheckedChangeListener((btn, isChecked) -> prefs.edit().putBoolean(folder.getAbsolutePath(), isChecked).apply());
                 return v;
             }
         });
