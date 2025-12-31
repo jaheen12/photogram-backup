@@ -1,0 +1,16 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.photogram.backup'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.photogram.backup"
+        minSdk 21
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+    }
+}
