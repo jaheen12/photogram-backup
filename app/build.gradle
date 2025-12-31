@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace 'com.photogram.backup'
-    compileSdk 34 // Updated for late 2025 standards
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.photogram.backup"
@@ -20,24 +20,32 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-    
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
 }
 
+// THIS BLOCK FIXES THE DUPLICATE CLASS ERROR
+configurations.all {
+    resolutionStrategy {
+        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+    }
+}
+
 dependencies {
-    // 1. AndroidX Core (FIXES THE NOTIFICATION ERROR)
+    // Core AndroidX libraries
     implementation 'androidx.core:core:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
 
-    // 2. Automation Engine (Background Sync)
+    // Automation Engine
     implementation 'androidx.work:work-runtime:2.8.1'
 
-    // 3. Internet Engine (Telegram Uploads)
+    // Internet Engine
     implementation 'com.squareup.okhttp3:okhttp:4.11.0'
 
-    // 4. Data Engine (Reading Telegram responses)
+    // JSON Engine
     implementation 'org.json:json:20230227'
 }
