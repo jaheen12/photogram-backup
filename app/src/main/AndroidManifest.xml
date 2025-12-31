@@ -3,6 +3,9 @@
     package="com.photogram.backup">
     
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+<!-- For Android 13 and above -->
+<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application android:label="Photogram">
