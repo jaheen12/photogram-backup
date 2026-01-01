@@ -31,6 +31,7 @@ public class MainActivity extends Activity {
     SharedPreferences prefs;
     DatabaseHelper dbHelper;
     TextView tvTotalStats, tvLastSync;
+    private static final int PERM_CODE = 101;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,7 +53,6 @@ public class MainActivity extends Activity {
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         findViewById(R.id.btnStartBackup).setOnClickListener(v -> scheduleBackup(true));
 
-        // Search Filter Logic
         etSearch.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -64,10 +64,11 @@ public class MainActivity extends Activity {
         setupAdapter();
         refreshDashboard();
         
+        // Initial load from DB
         allFolders.addAll(dbHelper.getSavedFolders());
-        filterFolders(""); // Initial load
+        filterFolders(""); 
 
-        handlePermissions();
+        handlePermissions(); // This will now work correctly
         checkBatteryOptimization();
     }
 
@@ -79,6 +80,8 @@ public class MainActivity extends Activity {
         if (lastSync > 0) {
             SimpleDateFormat sdf = new SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault());
             tvLastSync.setText("Last Sync: " + sdf.format(new Date(lastSync)));
+        } else {
+            tvLastSync.setText("Last Sync: Never");
         }
     }
 
@@ -92,8 +95,37 @@ public class MainActivity extends Activity {
         adapter.notifyDataSetChanged();
     }
 
-    // --- REUSE YOUR EXISTING PERMISSIONS, SCAN, AND WORKER METHODS HERE ---
-    // (Ensure you use 'allFolders' in recursiveScan and 'filteredFolders' in setupAdapter)
+    // --- THE MISSING METHOD ---
+    private void handlePermissions() {
+        ArrayList<String> perms = new ArrayList<>();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            perms.add(Manifest.permission.READ_MEDIA_IMAGES);
+            perms.add(Manifest.permission.POST_NOTIFICATIONS);
+        } else {
+            perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+        }
+
+        boolean needsRequest = false;
+        for (String p : perms) {
+            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                needsRequest = true;
+                break;
+            }
+        }
+
+        if (needsRequest) {
+            requestPermissions(perms.toArray(new String[0]), PERM_CODE);
+        } else {
+            startAppLogic();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode == PERM_CODE) {
+            startAppLogic();
+        }
+    }
 
     private void startAppLogic() {
         runOnUiThread(() -> swipeRefresh.setRefreshing(true));
@@ -104,7 +136,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 allFolders.clear();
                 allFolders.addAll(fresh);
-                filterFolders(""); // Refresh the view
+                filterFolders(""); 
                 swipeRefresh.setRefreshing(false);
                 refreshDashboard();
             });
@@ -118,10 +150,14 @@ public class MainActivity extends Activity {
         boolean hasImg = false;
         for (File f : files) {
             if (f.isDirectory()) {
-                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f, list);
+                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) {
+                    recursiveScan(f, list);
+                }
             } else if (!hasImg) {
                 String n = f.getName().toLowerCase();
-                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) hasImg = true;
+                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) {
+                    hasImg = true;
+                }
             }
         }
         if (hasImg) list.add(dir);
@@ -129,15 +165,21 @@ public class MainActivity extends Activity {
 
     private void scheduleBackup(boolean immediate) {
         int interval = prefs.getInt("sync_interval", 60);
-        NetworkType networkType = prefs.getBoolean("only_wifi", false) ? NetworkType.UNMETERED : NetworkType.CONNECTED;
-        Constraints constraints = new Constraints.Builder().setRequiredNetworkType(networkType).build();
+        boolean onlyWifi = prefs.getBoolean("only_wifi", false);
+        NetworkType nt = onlyWifi ? NetworkType.UNMETERED : NetworkType.CONNECTED;
+        
+        Constraints constraints = new Constraints.Builder().setRequiredNetworkType(nt).build();
 
         if (immediate) {
             Data data = new Data.Builder().putBoolean("is_manual", true).build();
-            OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(constraints).setInputData(data).build();
+            OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(BackupWorker.class)
+                    .setConstraints(constraints).setInputData(data).build();
             WorkManager.getInstance(this).enqueue(req);
+            Toast.makeText(this, "Sync Started...", Toast.LENGTH_SHORT).show();
         }
-        PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES).setConstraints(constraints).build();
+
+        PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES)
+                .setConstraints(constraints).build();
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, periodic);
     }
 
