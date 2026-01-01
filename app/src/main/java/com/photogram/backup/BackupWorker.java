@@ -1,19 +1,19 @@
 package com.photogram.backup;
 
 import android.app.*;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
+import android.provider.MediaStore;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.work.ForegroundInfo;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 import java.io.File;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 public class BackupWorker extends Worker {
@@ -22,109 +22,113 @@ public class BackupWorker extends Worker {
     private static final int NOTIF_ID = 1;
 
     private final SharedPreferences prefs;
-    private final DatabaseHelper dbHelper; // Our new Librarian
+    private final DatabaseHelper dbHelper;
     private final NotificationManager notificationManager;
+    private final Context context;
 
     public BackupWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
-        prefs = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
-        dbHelper = new DatabaseHelper(context); // Initialize DB
-        notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        this.context = context;
+        this.prefs = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
+        this.dbHelper = new DatabaseHelper(context);
+        this.notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
     }
 
     @NonNull
     @Override
     public Result doWork() {
         boolean isManual = getInputData().getBoolean("is_manual", false);
-        long lastSync = prefs.getLong("last_sync_timestamp", 0);
+        long lastSyncSeconds = prefs.getLong("last_sync_timestamp", 0) / 1000; // MediaStore uses seconds
         int intervalMins = prefs.getInt("sync_interval", 60);
 
-        if (!isManual && (System.currentTimeMillis() - lastSync < TimeUnit.MINUTES.toMillis(intervalMins))) {
+        // Failsafe timer check
+        if (!isManual && (System.currentTimeMillis() / 1000 - lastSyncSeconds < TimeUnit.MINUTES.toSeconds(intervalMins))) {
             return Result.success();
         }
 
         createNotificationChannel();
-        setForegroundAsync(createForegroundInfo("Starting full secure scan..."));
+        setForegroundAsync(createForegroundInfo("Querying new media..."));
 
         String token = prefs.getString("bot_token", "");
         String chatId = prefs.getString("chat_id", "");
         if (token.isEmpty() || chatId.isEmpty()) return Result.failure();
 
         TelegramHelper helper = new TelegramHelper(token, chatId);
-        int uploaded = 0;
-
-        try {
-            uploaded = scanAndUploadIterative(Environment.getExternalStorageDirectory(), helper);
-        } catch (Exception e) {
-            return Result.retry();
-        }
+        int uploadedCount = scanMediaStoreAndUpload(lastSyncSeconds, helper);
 
         prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
-        showNotification("Photogram Sync", "Backup complete • " + uploaded + " new photos");
-        
+        showNotification("Photogram Sync", "Delta Backup complete • " + uploadedCount + " new items");
+
         return Result.success();
     }
 
-    private int scanAndUploadIterative(File root, TelegramHelper helper) {
+    private int scanMediaStoreAndUpload(long sinceTimestampSeconds, TelegramHelper helper) {
         int count = 0;
-        Deque<File> stack = new ArrayDeque<>();
-        stack.push(root);
+        ContentResolver contentResolver = context.getContentResolver();
 
-        while (!stack.isEmpty() && !isStopped()) {
-            File dir = stack.pop();
-            File[] files = dir.listFiles();
-            if (files == null) continue;
+        // Query only for Images
+        Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+        
+        // We only want: File Path and Date Modified
+        String[] projection = {
+                MediaStore.Images.Media.DATA,
+                MediaStore.Images.Media.DATE_MODIFIED
+        };
 
-            boolean enabled = prefs.getBoolean(dir.getAbsolutePath(), false);
-            String threadId = "";
+        // DELTA LOGIC: Only files newer than our last sync
+        String selection = MediaStore.Images.Media.DATE_MODIFIED + " > ?";
+        String[] selectionArgs = new String[]{String.valueOf(sinceTimestampSeconds)};
+        String sortOrder = MediaStore.Images.Media.DATE_MODIFIED + " ASC";
 
-            if (enabled) {
-                threadId = prefs.getString("topic_" + dir.getAbsolutePath(), "");
-                try {
-                    if (threadId.isEmpty()) {
-                        threadId = helper.createTopic(dir.getName());
-                        prefs.edit().putString("topic_" + dir.getAbsolutePath(), threadId).apply();
-                    }
-                } catch (Exception e) { enabled = false; }
-            }
+        try (Cursor cursor = contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+                int dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED);
 
-            for (File f : files) {
-                if (isStopped()) break;
-                if (f.isDirectory()) {
-                    if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) {
-                        stack.push(f);
-                    }
-                    continue;
-                }
+                do {
+                    if (isStopped()) break;
 
-                // --- DATABASE CHECK ---
-                if (enabled && isImage(f)) {
-                    if (!dbHelper.isFileUploaded(f.getAbsolutePath(), f.lastModified())) {
-                        try {
-                            if (helper.uploadPhoto(f, threadId)) {
-                                dbHelper.markAsUploaded(f.getAbsolutePath(), f.lastModified());
+                    String filePath = cursor.getString(dataColumn);
+                    long modifiedTime = cursor.getLong(dateColumn);
+                    File file = new File(filePath);
+                    File parentDir = file.getParentFile();
+
+                    if (parentDir != null && prefs.getBoolean(parentDir.getAbsolutePath(), false)) {
+                        // Check Database history
+                        if (!dbHelper.isFileUploaded(filePath, modifiedTime)) {
+                            String threadId = getOrCreateTopic(parentDir, helper);
+                            if (!threadId.isEmpty() && helper.uploadPhoto(file, threadId)) {
+                                dbHelper.markAsUploaded(filePath, modifiedTime);
                                 count++;
-                                if (count % 5 == 0) {
-                                    showNotification("Photogram Sync", "Uploaded " + count + " photos...");
-                                }
+                                if (count % 3 == 0) showNotification("Photogram Sync", "Uploading new media...");
                             }
-                        } catch (Exception ignored) {}
+                        }
                     }
-                }
+                } while (cursor.moveToNext());
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
         return count;
     }
 
-    private boolean isImage(File f) {
-        String name = f.getName().toLowerCase(Locale.US);
-        return name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png") || name.endsWith(".webp") || name.endsWith(".heic");
+    private String getOrCreateTopic(File dir, TelegramHelper helper) {
+        String threadId = prefs.getString("topic_" + dir.getAbsolutePath(), "");
+        if (threadId.isEmpty()) {
+            try {
+                threadId = helper.createTopic(dir.getName());
+                prefs.edit().putString("topic_" + dir.getAbsolutePath(), threadId).apply();
+            } catch (Exception e) {
+                return "";
+            }
+        }
+        return threadId;
     }
 
     private ForegroundInfo createForegroundInfo(String text) {
         Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Photogram Background Sync")
+                .setContentTitle("Photogram Syncing")
                 .setContentText(text)
                 .setOngoing(true)
                 .build();

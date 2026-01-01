@@ -19,7 +19,9 @@ import java.util.concurrent.TimeUnit;
 public class MainActivity extends Activity {
     ListView listView;
     ArrayList<File> imageFolders = new ArrayList<>();
+    BaseAdapter adapter;
     SharedPreferences prefs;
+    DatabaseHelper dbHelper;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -27,29 +29,20 @@ public class MainActivity extends Activity {
         setContentView(R.layout.main);
         
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
+        dbHelper = new DatabaseHelper(this);
         listView = findViewById(R.id.folderListView);
         
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        findViewById(R.id.btnStartBackup).setOnClickListener(v -> scheduleBackup(true));
 
-        Button btnBackup = findViewById(R.id.btnStartBackup);
-        btnBackup.setOnClickListener(v -> {
-            scheduleBackup(true); // Trigger immediate run
-            Toast.makeText(this, "Checking network and starting sync...", Toast.LENGTH_SHORT).show();
-        });
+        setupAdapter(); // Create the list shell
+        
+        // 1. INSTANT LOAD: Load folders from database immediately
+        imageFolders.addAll(dbHelper.getSavedFolders());
+        adapter.notifyDataSetChanged();
 
         handlePermissions();
         checkBatteryOptimization();
-    }
-
-    private void checkBatteryOptimization() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                intent.setData(Uri.parse("package:" + getPackageName()));
-                startActivity(intent);
-            }
-        }
     }
 
     private void handlePermissions() {
@@ -76,57 +69,73 @@ public class MainActivity extends Activity {
     }
 
     private void startAppLogic() {
+        // 2. SILENT UPDATE: Scan for changes in the background
         new Thread(() -> {
-            imageFolders.clear();
-            recursiveScan(Environment.getExternalStorageDirectory());
-            runOnUiThread(this::setupAdapter);
+            ArrayList<File> freshlyScanned = new ArrayList<>();
+            recursiveScan(Environment.getExternalStorageDirectory(), freshlyScanned);
+            
+            // Save new scan to DB
+            dbHelper.saveFolders(freshlyScanned);
+            
+            // Update UI only if the list changed
+            runOnUiThread(() -> {
+                imageFolders.clear();
+                imageFolders.addAll(freshlyScanned);
+                adapter.notifyDataSetChanged();
+            });
         }).start();
-        scheduleBackup(false); // Initialize periodic scheduler
+        
+        scheduleBackup(false);
     }
 
-    private void recursiveScan(File dir) {
+    private void recursiveScan(File dir, ArrayList<File> list) {
         File[] files = dir.listFiles();
         if (files == null) return;
         boolean hasImg = false;
         for (File f : files) {
             if (f.isDirectory()) {
-                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f);
-            } else {
+                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) {
+                    recursiveScan(f, list);
+                }
+            } else if (!hasImg) {
                 String n = f.getName().toLowerCase();
-                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) hasImg = true;
+                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) {
+                    hasImg = true;
+                }
             }
         }
-        if (hasImg) imageFolders.add(dir);
+        if (hasImg) list.add(dir);
     }
 
     private void scheduleBackup(boolean immediate) {
         int interval = prefs.getInt("sync_interval", 60);
-        boolean onlyWifi = prefs.getBoolean("only_wifi", false);
-
-        // --- NEW LOGIC: WI-FI vs DATA ---
-        // UNMETERED means Wi-Fi only. CONNECTED means any internet.
-        NetworkType networkType = onlyWifi ? NetworkType.UNMETERED : NetworkType.CONNECTED;
-
-        Constraints constraints = new Constraints.Builder()
-                .setRequiredNetworkType(networkType)
-                .build();
+        NetworkType networkType = prefs.getBoolean("only_wifi", false) ? NetworkType.UNMETERED : NetworkType.CONNECTED;
+        Constraints constraints = new Constraints.Builder().setRequiredNetworkType(networkType).build();
 
         if (immediate) {
-            Data inputData = new Data.Builder().putBoolean("is_manual", true).build();
-            OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(BackupWorker.class)
-                    .setConstraints(constraints).setInputData(inputData).build();
-            WorkManager.getInstance(this).enqueue(request);
+            Data data = new Data.Builder().putBoolean("is_manual", true).build();
+            OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(constraints).setInputData(data).build();
+            WorkManager.getInstance(this).enqueue(req);
+            Toast.makeText(this, "Sync Requested...", Toast.LENGTH_SHORT).show();
         }
 
-        PeriodicWorkRequest periodicRequest = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES)
-                .setConstraints(constraints).build();
+        PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES).setConstraints(constraints).build();
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, periodic);
+    }
 
-        // Using UPDATE so that if user changes network settings, it applies immediately
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.UPDATE, periodicRequest);
+    private void checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            }
+        }
     }
 
     void setupAdapter() {
-        listView.setAdapter(new BaseAdapter() {
+        adapter = new BaseAdapter() {
             @Override
             public int getCount() { return imageFolders.size(); }
             @Override
@@ -145,6 +154,7 @@ public class MainActivity extends Activity {
                 sw.setOnCheckedChangeListener((btn, isChecked) -> prefs.edit().putBoolean(folder.getAbsolutePath(), isChecked).apply());
                 return v;
             }
-        });
+        };
+        listView.setAdapter(adapter);
     }
 }
