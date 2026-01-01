@@ -48,4 +48,6 @@ dependencies {
 
     // JSON Engine
     implementation 'org.json:json:20230227'
+    
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 }

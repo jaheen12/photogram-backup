@@ -15,13 +15,21 @@
         android:id="@+id/btnStartBackup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="RUN TEST BACKUP"
+        android:text="SYNC NOW (BACKGROUND)"
         android:backgroundTint="#4CAF50"
         android:textColor="#FFFFFF" />
 
-    <ListView
-        android:id="@+id/folderListView"
+    <!-- NEW: Swipe Refresh Wrapper -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent">
+
+        <ListView
+            android:id="@+id/folderListView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 </LinearLayout>

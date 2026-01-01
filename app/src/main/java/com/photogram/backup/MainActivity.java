@@ -12,12 +12,14 @@ import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 import androidx.work.*;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout; // NEW IMPORT
 import java.io.File;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     ListView listView;
+    SwipeRefreshLayout swipeRefresh; // NEW WIDGET
     ArrayList<File> imageFolders = new ArrayList<>();
     BaseAdapter adapter;
     SharedPreferences prefs;
@@ -31,13 +33,23 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
         dbHelper = new DatabaseHelper(this);
         listView = findViewById(R.id.folderListView);
+        swipeRefresh = findViewById(R.id.swipeRefresh); // INITIALIZE
+
+        // Setup the Swipe-to-Refresh color (Telegram Blue)
+        swipeRefresh.setColorSchemeColors(0xFF0088CC);
         
+        // --- THE SWIPE LISTENER ---
+        swipeRefresh.setOnRefreshListener(() -> {
+            Toast.makeText(this, "Refreshing folder list...", Toast.LENGTH_SHORT).show();
+            startAppLogic(); // Re-run the scanner
+        });
+
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         findViewById(R.id.btnStartBackup).setOnClickListener(v -> scheduleBackup(true));
 
-        setupAdapter(); // Create the list shell
+        setupAdapter();
         
-        // 1. INSTANT LOAD: Load folders from database immediately
+        // INSTANT LOAD
         imageFolders.addAll(dbHelper.getSavedFolders());
         adapter.notifyDataSetChanged();
 
@@ -69,19 +81,20 @@ public class MainActivity extends Activity {
     }
 
     private void startAppLogic() {
-        // 2. SILENT UPDATE: Scan for changes in the background
+        // Start showing the refreshing circle
+        runOnUiThread(() -> swipeRefresh.setRefreshing(true));
+
         new Thread(() -> {
             ArrayList<File> freshlyScanned = new ArrayList<>();
             recursiveScan(Environment.getExternalStorageDirectory(), freshlyScanned);
-            
-            // Save new scan to DB
             dbHelper.saveFolders(freshlyScanned);
             
-            // Update UI only if the list changed
             runOnUiThread(() -> {
                 imageFolders.clear();
                 imageFolders.addAll(freshlyScanned);
                 adapter.notifyDataSetChanged();
+                // STOP the refreshing circle
+                swipeRefresh.setRefreshing(false);
             });
         }).start();
         
@@ -116,7 +129,6 @@ public class MainActivity extends Activity {
             Data data = new Data.Builder().putBoolean("is_manual", true).build();
             OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(constraints).setInputData(data).build();
             WorkManager.getInstance(this).enqueue(req);
-            Toast.makeText(this, "Sync Requested...", Toast.LENGTH_SHORT).show();
         }
 
         PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES).setConstraints(constraints).build();
