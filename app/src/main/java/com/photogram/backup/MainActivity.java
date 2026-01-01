@@ -33,8 +33,8 @@ public class MainActivity extends Activity {
 
         Button btnBackup = findViewById(R.id.btnStartBackup);
         btnBackup.setOnClickListener(v -> {
-            scheduleBackup(true); // Immediate manual trigger
-            Toast.makeText(this, "Manual Sync Started!", Toast.LENGTH_SHORT).show();
+            scheduleBackup(true); // Trigger immediate run
+            Toast.makeText(this, "Checking network and starting sync...", Toast.LENGTH_SHORT).show();
         });
 
         handlePermissions();
@@ -81,7 +81,7 @@ public class MainActivity extends Activity {
             recursiveScan(Environment.getExternalStorageDirectory());
             runOnUiThread(this::setupAdapter);
         }).start();
-        scheduleBackup(false); // Init periodic scheduler
+        scheduleBackup(false); // Initialize periodic scheduler
     }
 
     private void recursiveScan(File dir) {
@@ -101,8 +101,14 @@ public class MainActivity extends Activity {
 
     private void scheduleBackup(boolean immediate) {
         int interval = prefs.getInt("sync_interval", 60);
+        boolean onlyWifi = prefs.getBoolean("only_wifi", false);
+
+        // --- NEW LOGIC: WI-FI vs DATA ---
+        // UNMETERED means Wi-Fi only. CONNECTED means any internet.
+        NetworkType networkType = onlyWifi ? NetworkType.UNMETERED : NetworkType.CONNECTED;
+
         Constraints constraints = new Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiredNetworkType(networkType)
                 .build();
 
         if (immediate) {
@@ -115,7 +121,8 @@ public class MainActivity extends Activity {
         PeriodicWorkRequest periodicRequest = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES)
                 .setConstraints(constraints).build();
 
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, periodicRequest);
+        // Using UPDATE so that if user changes network settings, it applies immediately
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.UPDATE, periodicRequest);
     }
 
     void setupAdapter() {
