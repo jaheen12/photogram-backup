@@ -46,7 +46,18 @@
                 android:backgroundTint="#4CAF50"
                 android:textColor="#FFFFFF" />
 
-            <View android:layout_width="10dp" android:layout_height="0dp"/>
+            <View android:layout_width="8dp" android:layout_height="0dp"/>
+
+            <Button
+                android:id="@+id/btnLogs"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="View Logs"
+                android:backgroundTint="#FF9800"
+                android:textColor="#FFFFFF" />
+
+            <View android:layout_width="8dp" android:layout_height="0dp"/>
 
             <Button
                 android:id="@+id/btnSettings"

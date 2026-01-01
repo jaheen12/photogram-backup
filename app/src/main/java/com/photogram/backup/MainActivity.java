@@ -31,7 +31,6 @@ public class MainActivity extends Activity {
     SharedPreferences prefs;
     DatabaseHelper dbHelper;
     TextView tvTotalStats, tvLastSync;
-    private static final int PERM_CODE = 101;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,9 +49,14 @@ public class MainActivity extends Activity {
         swipeRefresh.setColorSchemeColors(0xFF0088CC);
         swipeRefresh.setOnRefreshListener(this::startAppLogic);
 
+        // --- BUTTON INITIALIZATION ---
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         findViewById(R.id.btnStartBackup).setOnClickListener(v -> scheduleBackup(true));
+        
+        // Finalized Logs Button Implementation
+        findViewById(R.id.btnLogs).setOnClickListener(v -> startActivity(new Intent(this, LogActivity.class)));
 
+        // Search Logic
         etSearch.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -62,24 +66,28 @@ public class MainActivity extends Activity {
         });
 
         setupAdapter();
-        refreshDashboard();
         
-        // Initial load from DB
+        // Instant load from Cache
         allFolders.addAll(dbHelper.getSavedFolders());
-        filterFolders(""); 
+        filterFolders("");
 
-        handlePermissions(); // This will now work correctly
+        handlePermissions();
         checkBatteryOptimization();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshDashboard();
     }
 
     private void refreshDashboard() {
         int count = dbHelper.getTotalBackupCount();
         tvTotalStats.setText(count + " Photos Backed Up");
-
         long lastSync = prefs.getLong("last_sync_timestamp", 0);
         if (lastSync > 0) {
-            SimpleDateFormat sdf = new SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault());
-            tvLastSync.setText("Last Sync: " + sdf.format(new Date(lastSync)));
+            String time = new SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(new Date(lastSync));
+            tvLastSync.setText("Last Sync: " + time);
         } else {
             tvLastSync.setText("Last Sync: Never");
         }
@@ -95,7 +103,6 @@ public class MainActivity extends Activity {
         adapter.notifyDataSetChanged();
     }
 
-    // --- THE MISSING METHOD ---
     private void handlePermissions() {
         ArrayList<String> perms = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -104,27 +111,10 @@ public class MainActivity extends Activity {
         } else {
             perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
         }
-
-        boolean needsRequest = false;
-        for (String p : perms) {
-            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
-                needsRequest = true;
-                break;
-            }
-        }
-
-        if (needsRequest) {
-            requestPermissions(perms.toArray(new String[0]), PERM_CODE);
-        } else {
-            startAppLogic();
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == PERM_CODE) {
-            startAppLogic();
-        }
+        boolean request = false;
+        for (String p : perms) { if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) request = true; }
+        if (request) requestPermissions(perms.toArray(new String[0]), 101);
+        else startAppLogic();
     }
 
     private void startAppLogic() {
@@ -136,7 +126,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 allFolders.clear();
                 allFolders.addAll(fresh);
-                filterFolders(""); 
+                filterFolders("");
                 swipeRefresh.setRefreshing(false);
                 refreshDashboard();
             });
@@ -150,14 +140,10 @@ public class MainActivity extends Activity {
         boolean hasImg = false;
         for (File f : files) {
             if (f.isDirectory()) {
-                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) {
-                    recursiveScan(f, list);
-                }
-            } else if (!hasImg) {
+                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f, list);
+            } else {
                 String n = f.getName().toLowerCase();
-                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) {
-                    hasImg = true;
-                }
+                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) hasImg = true;
             }
         }
         if (hasImg) list.add(dir);
@@ -165,21 +151,22 @@ public class MainActivity extends Activity {
 
     private void scheduleBackup(boolean immediate) {
         int interval = prefs.getInt("sync_interval", 60);
-        boolean onlyWifi = prefs.getBoolean("only_wifi", false);
-        NetworkType nt = onlyWifi ? NetworkType.UNMETERED : NetworkType.CONNECTED;
-        
+        NetworkType nt = prefs.getBoolean("only_wifi", false) ? NetworkType.UNMETERED : NetworkType.CONNECTED;
         Constraints constraints = new Constraints.Builder().setRequiredNetworkType(nt).build();
 
         if (immediate) {
             Data data = new Data.Builder().putBoolean("is_manual", true).build();
             OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(BackupWorker.class)
-                    .setConstraints(constraints).setInputData(data).build();
+                    .setConstraints(constraints)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .setInputData(data).build();
             WorkManager.getInstance(this).enqueue(req);
-            Toast.makeText(this, "Sync Started...", Toast.LENGTH_SHORT).show();
         }
 
         PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES)
-                .setConstraints(constraints).build();
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.HOURS)
+                .build();
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, periodic);
     }
 
@@ -195,7 +182,7 @@ public class MainActivity extends Activity {
     }
 
     void setupAdapter() {
-        adapter = new BaseAdapter() {
+        listView.setAdapter(new BaseAdapter() {
             @Override
             public int getCount() { return filteredFolders.size(); }
             @Override
@@ -214,7 +201,6 @@ public class MainActivity extends Activity {
                 sw.setOnCheckedChangeListener((btn, isChecked) -> prefs.edit().putBoolean(folder.getAbsolutePath(), isChecked).apply());
                 return v;
             }
-        };
-        listView.setAdapter(adapter);
+        });
     }
 }
