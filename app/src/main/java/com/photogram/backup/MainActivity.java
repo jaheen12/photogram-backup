@@ -9,21 +9,28 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.*;
 import android.provider.Settings;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.*;
 import android.widget.*;
 import androidx.work.*;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout; // NEW IMPORT
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import java.io.File;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     ListView listView;
-    SwipeRefreshLayout swipeRefresh; // NEW WIDGET
-    ArrayList<File> imageFolders = new ArrayList<>();
+    SwipeRefreshLayout swipeRefresh;
+    ArrayList<File> allFolders = new ArrayList<>();
+    ArrayList<File> filteredFolders = new ArrayList<>();
     BaseAdapter adapter;
     SharedPreferences prefs;
     DatabaseHelper dbHelper;
+    TextView tvTotalStats, tvLastSync;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,72 +39,76 @@ public class MainActivity extends Activity {
         
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
         dbHelper = new DatabaseHelper(this);
-        listView = findViewById(R.id.folderListView);
-        swipeRefresh = findViewById(R.id.swipeRefresh); // INITIALIZE
-
-        // Setup the Swipe-to-Refresh color (Telegram Blue)
-        swipeRefresh.setColorSchemeColors(0xFF0088CC);
         
-        // --- THE SWIPE LISTENER ---
-        swipeRefresh.setOnRefreshListener(() -> {
-            Toast.makeText(this, "Refreshing folder list...", Toast.LENGTH_SHORT).show();
-            startAppLogic(); // Re-run the scanner
-        });
+        listView = findViewById(R.id.folderListView);
+        swipeRefresh = findViewById(R.id.swipeRefresh);
+        tvTotalStats = findViewById(R.id.tvTotalStats);
+        tvLastSync = findViewById(R.id.tvLastSync);
+        EditText etSearch = findViewById(R.id.etSearch);
+
+        swipeRefresh.setColorSchemeColors(0xFF0088CC);
+        swipeRefresh.setOnRefreshListener(this::startAppLogic);
 
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         findViewById(R.id.btnStartBackup).setOnClickListener(v -> scheduleBackup(true));
 
+        // Search Filter Logic
+        etSearch.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                filterFolders(s.toString());
+            }
+            public void afterTextChanged(Editable s) {}
+        });
+
         setupAdapter();
+        refreshDashboard();
         
-        // INSTANT LOAD
-        imageFolders.addAll(dbHelper.getSavedFolders());
-        adapter.notifyDataSetChanged();
+        allFolders.addAll(dbHelper.getSavedFolders());
+        filterFolders(""); // Initial load
 
         handlePermissions();
         checkBatteryOptimization();
     }
 
-    private void handlePermissions() {
-        ArrayList<String> perms = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            perms.add(Manifest.permission.READ_MEDIA_IMAGES);
-            perms.add(Manifest.permission.POST_NOTIFICATIONS);
-        } else {
-            perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
-        }
+    private void refreshDashboard() {
+        int count = dbHelper.getTotalBackupCount();
+        tvTotalStats.setText(count + " Photos Backed Up");
 
-        boolean needsRequest = false;
-        for (String p : perms) {
-            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) needsRequest = true;
+        long lastSync = prefs.getLong("last_sync_timestamp", 0);
+        if (lastSync > 0) {
+            SimpleDateFormat sdf = new SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault());
+            tvLastSync.setText("Last Sync: " + sdf.format(new Date(lastSync)));
         }
-
-        if (needsRequest) requestPermissions(perms.toArray(new String[0]), 101);
-        else startAppLogic();
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        startAppLogic();
+    private void filterFolders(String query) {
+        filteredFolders.clear();
+        for (File f : allFolders) {
+            if (f.getName().toLowerCase().contains(query.toLowerCase())) {
+                filteredFolders.add(f);
+            }
+        }
+        adapter.notifyDataSetChanged();
     }
+
+    // --- REUSE YOUR EXISTING PERMISSIONS, SCAN, AND WORKER METHODS HERE ---
+    // (Ensure you use 'allFolders' in recursiveScan and 'filteredFolders' in setupAdapter)
 
     private void startAppLogic() {
-        // Start showing the refreshing circle
         runOnUiThread(() -> swipeRefresh.setRefreshing(true));
-
         new Thread(() -> {
-            ArrayList<File> freshlyScanned = new ArrayList<>();
-            recursiveScan(Environment.getExternalStorageDirectory(), freshlyScanned);
-            dbHelper.saveFolders(freshlyScanned);
-            
+            ArrayList<File> fresh = new ArrayList<>();
+            recursiveScan(Environment.getExternalStorageDirectory(), fresh);
+            dbHelper.saveFolders(fresh);
             runOnUiThread(() -> {
-                imageFolders.clear();
-                imageFolders.addAll(freshlyScanned);
-                adapter.notifyDataSetChanged();
-                // STOP the refreshing circle
+                allFolders.clear();
+                allFolders.addAll(fresh);
+                filterFolders(""); // Refresh the view
                 swipeRefresh.setRefreshing(false);
+                refreshDashboard();
             });
         }).start();
-        
         scheduleBackup(false);
     }
 
@@ -107,14 +118,10 @@ public class MainActivity extends Activity {
         boolean hasImg = false;
         for (File f : files) {
             if (f.isDirectory()) {
-                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) {
-                    recursiveScan(f, list);
-                }
+                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f, list);
             } else if (!hasImg) {
                 String n = f.getName().toLowerCase();
-                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) {
-                    hasImg = true;
-                }
+                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) hasImg = true;
             }
         }
         if (hasImg) list.add(dir);
@@ -130,7 +137,6 @@ public class MainActivity extends Activity {
             OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(constraints).setInputData(data).build();
             WorkManager.getInstance(this).enqueue(req);
         }
-
         PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES).setConstraints(constraints).build();
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, periodic);
     }
@@ -149,15 +155,15 @@ public class MainActivity extends Activity {
     void setupAdapter() {
         adapter = new BaseAdapter() {
             @Override
-            public int getCount() { return imageFolders.size(); }
+            public int getCount() { return filteredFolders.size(); }
             @Override
-            public Object getItem(int i) { return imageFolders.get(i); }
+            public Object getItem(int i) { return filteredFolders.get(i); }
             @Override
             public long getItemId(int i) { return i; }
             @Override
             public View getView(int i, View v, ViewGroup p) {
                 if (v == null) v = LayoutInflater.from(MainActivity.this).inflate(R.layout.folder_item, null);
-                File folder = imageFolders.get(i);
+                File folder = filteredFolders.get(i);
                 ((TextView)v.findViewById(R.id.folderName)).setText(folder.getName());
                 ((TextView)v.findViewById(R.id.folderPath)).setText(folder.getAbsolutePath());
                 Switch sw = v.findViewById(R.id.backupSwitch);

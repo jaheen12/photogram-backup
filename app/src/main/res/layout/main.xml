@@ -3,23 +3,73 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F0F0F0">
+    android:background="#F8F9FA">
 
-    <Button
-        android:id="@+id/btnSettings"
+    <!-- Dashboard Card -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="TELEGRAM SETTINGS" />
+        android:orientation="vertical"
+        android:background="#242F3D"
+        android:padding="20dp">
 
-    <Button
-        android:id="@+id/btnStartBackup"
+        <TextView
+            android:id="@+id/tvTotalStats"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0 Photos Backed Up"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvLastSync"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Last Sync: Never"
+            android:textColor="#A0B0C0"
+            android:textSize="14sp"
+            android:layout_marginTop="5dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="15dp">
+
+            <Button
+                android:id="@+id/btnStartBackup"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Sync Now"
+                android:backgroundTint="#4CAF50"
+                android:textColor="#FFFFFF" />
+
+            <View android:layout_width="10dp" android:layout_height="0dp"/>
+
+            <Button
+                android:id="@+id/btnSettings"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Settings"
+                android:backgroundTint="#0088CC"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Search Bar -->
+    <EditText
+        android:id="@+id/etSearch"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="SYNC NOW (BACKGROUND)"
-        android:backgroundTint="#4CAF50"
-        android:textColor="#FFFFFF" />
+        android:hint="Search folders..."
+        android:padding="12dp"
+        android:layout_margin="10dp"
+        android:background="@android:drawable/editbox_background"
+        android:drawableLeft="@android:drawable/ic_menu_search" />
 
-    <!-- NEW: Swipe Refresh Wrapper -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
