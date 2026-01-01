@@ -22,52 +22,46 @@ public class BackupWorker extends Worker {
     private static final int NOTIF_ID = 1;
 
     private final SharedPreferences prefs;
-    private final SharedPreferences history;
+    private final DatabaseHelper dbHelper; // Our new Librarian
     private final NotificationManager notificationManager;
 
     public BackupWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
         prefs = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
-        history = context.getSharedPreferences("HistoryPrefs", Context.MODE_PRIVATE);
+        dbHelper = new DatabaseHelper(context); // Initialize DB
         notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
     }
 
     @NonNull
     @Override
     public Result doWork() {
-        // 1. Failsafe Check
         boolean isManual = getInputData().getBoolean("is_manual", false);
         long lastSync = prefs.getLong("last_sync_timestamp", 0);
         int intervalMins = prefs.getInt("sync_interval", 60);
 
-        if (!isManual) {
-            long diff = System.currentTimeMillis() - lastSync;
-            if (diff < TimeUnit.MINUTES.toMillis(intervalMins)) {
-                return Result.success();
-            }
+        if (!isManual && (System.currentTimeMillis() - lastSync < TimeUnit.MINUTES.toMillis(intervalMins))) {
+            return Result.success();
         }
 
-        // 2. Setup Notification & Foreground Status
         createNotificationChannel();
-        setForegroundAsync(createForegroundInfo("Scanning storage..."));
+        setForegroundAsync(createForegroundInfo("Starting full secure scan..."));
 
         String token = prefs.getString("bot_token", "");
         String chatId = prefs.getString("chat_id", "");
         if (token.isEmpty() || chatId.isEmpty()) return Result.failure();
 
         TelegramHelper helper = new TelegramHelper(token, chatId);
-
         int uploaded = 0;
+
         try {
             uploaded = scanAndUploadIterative(Environment.getExternalStorageDirectory(), helper);
         } catch (Exception e) {
             return Result.retry();
         }
 
-        // 3. Mark successful sync time
         prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
-
         showNotification("Photogram Sync", "Backup complete • " + uploaded + " new photos");
+        
         return Result.success();
     }
 
@@ -91,12 +85,11 @@ public class BackupWorker extends Worker {
                         threadId = helper.createTopic(dir.getName());
                         prefs.edit().putString("topic_" + dir.getAbsolutePath(), threadId).apply();
                     }
-                } catch (Exception e) { enabled = false; } // Fallback if topic creation fails
+                } catch (Exception e) { enabled = false; }
             }
 
             for (File f : files) {
                 if (isStopped()) break;
-
                 if (f.isDirectory()) {
                     if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) {
                         stack.push(f);
@@ -104,12 +97,12 @@ public class BackupWorker extends Worker {
                     continue;
                 }
 
+                // --- DATABASE CHECK ---
                 if (enabled && isImage(f)) {
-                    String fileKey = f.getAbsolutePath() + "_" + f.lastModified();
-                    if (!history.getBoolean(fileKey, false)) {
+                    if (!dbHelper.isFileUploaded(f.getAbsolutePath(), f.lastModified())) {
                         try {
                             if (helper.uploadPhoto(f, threadId)) {
-                                history.edit().putBoolean(fileKey, true).apply();
+                                dbHelper.markAsUploaded(f.getAbsolutePath(), f.lastModified());
                                 count++;
                                 if (count % 5 == 0) {
                                     showNotification("Photogram Sync", "Uploaded " + count + " photos...");
@@ -119,8 +112,6 @@ public class BackupWorker extends Worker {
                     }
                 }
             }
-            // Save progress after every folder processed to ensure we don't lose data
-            history.edit().apply();
         }
         return count;
     }
@@ -133,7 +124,7 @@ public class BackupWorker extends Worker {
     private ForegroundInfo createForegroundInfo(String text) {
         Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Photogram Syncing")
+                .setContentTitle("Photogram Background Sync")
                 .setContentText(text)
                 .setOngoing(true)
                 .build();
