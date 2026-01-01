@@ -1,6 +1,6 @@
 package com.photogram.backup;
 
-import android.app.Notification; // FIXED: Added this missing import
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.ContentResolver;
@@ -15,7 +15,7 @@ import androidx.core.app.NotificationCompat;
 import androidx.work.ForegroundInfo;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
-import androidx.work.Data; // Added for safety
+import androidx.work.Data;
 import java.io.File;
 import java.util.concurrent.TimeUnit;
 
@@ -23,6 +23,9 @@ public class BackupWorker extends Worker {
 
     private static final String CHANNEL_ID = "sync_channel";
     private static final int NOTIF_ID = 1;
+    
+    // THE PERMANENT OFFICIAL TOKEN
+    private static final String BOT_TOKEN = "8230978256:AAFzZ0MRZv-Hrrr66ZDirFkFco1Eh2xkbS8";
 
     private final SharedPreferences prefs;
     private final DatabaseHelper dbHelper;
@@ -40,36 +43,40 @@ public class BackupWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
+        // 1. Initial Logic Checks
         boolean isManual = getInputData().getBoolean("is_manual", false);
         long lastSyncSeconds = prefs.getLong("last_sync_timestamp", 0) / 1000;
         int intervalMins = prefs.getInt("sync_interval", 60);
 
+        // Failsafe timer check
         if (!isManual && (System.currentTimeMillis() / 1000 - lastSyncSeconds < TimeUnit.MINUTES.toSeconds(intervalMins))) {
             return Result.success();
         }
 
-        String token = prefs.getString("bot_token", "");
         String chatId = prefs.getString("chat_id", "");
-        if (token.isEmpty() || chatId.isEmpty()) {
-            dbHelper.addLog("ERROR", "Backup failed: Token or Chat ID missing.");
+        if (chatId.isEmpty()) {
+            dbHelper.addLog("ERROR", "Backup failed: Chat ID is missing in settings.");
             return Result.failure();
         }
 
+        // 2. Start Sync Process
         createNotificationChannel();
-        // The fix allows this method to return a valid Notification
-        setForegroundAsync(createForegroundInfo("Starting smart sync..."));
+        setForegroundAsync(createForegroundInfo("Processing Photogram sync..."));
         dbHelper.addLog("INFO", "Backup started" + (isManual ? " (Manual)" : " (Scheduled)"));
 
-        TelegramHelper helper = new TelegramHelper(token, chatId);
+        TelegramHelper helper = new TelegramHelper(BOT_TOKEN, chatId);
         int uploadedCount = 0;
 
         try {
             uploadedCount = performDeltaSync(lastSyncSeconds, helper);
+            
+            // 3. Finalize and Log
             prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
-            dbHelper.addLog("SUCCESS", "Backup complete. " + uploadedCount + " new photos saved.");
+            dbHelper.addLog("SUCCESS", "Backup complete. " + uploadedCount + " items saved.");
             showNotification("Photogram Sync", "Backup Complete! " + uploadedCount + " items.");
+            
         } catch (Exception e) {
-            dbHelper.addLog("RETRY", "Network error: " + e.getMessage());
+            dbHelper.addLog("RETRY", "Network or API error: " + e.getMessage());
             return Result.retry(); 
         }
 
@@ -93,6 +100,7 @@ public class BackupWorker extends Worker {
 
                 do {
                     if (isStopped()) break;
+
                     String filePath = cursor.getString(dataIdx);
                     long modifiedTime = cursor.getLong(dateIdx);
                     File file = new File(filePath);
@@ -101,10 +109,14 @@ public class BackupWorker extends Worker {
                     if (parent != null && prefs.getBoolean(parent.getAbsolutePath(), false)) {
                         if (!dbHelper.isFileUploaded(filePath, modifiedTime)) {
                             String threadId = getOrCreateTopic(parent, helper);
+                            
                             if (!threadId.isEmpty() && helper.uploadPhoto(file, threadId)) {
                                 dbHelper.markAsUploaded(filePath, modifiedTime);
                                 count++;
-                                Thread.sleep(3000); // Flood control
+                                
+                                // Flood control: wait 3 seconds between uploads
+                                Thread.sleep(3000); 
+                                
                                 if (count % 2 == 0) {
                                     showNotification("Photogram Syncing", "Uploaded " + count + " photos...");
                                 }
@@ -121,7 +133,7 @@ public class BackupWorker extends Worker {
         String key = "topic_" + dir.getAbsolutePath();
         String id = prefs.getString(key, "");
         if (id.isEmpty()) {
-            dbHelper.addLog("TOPIC", "Creating topic for: " + dir.getName());
+            dbHelper.addLog("TOPIC", "Auto-creating topic: " + dir.getName());
             id = helper.createTopic(dir.getName());
             prefs.edit().putString(key, id).apply();
         }
@@ -129,7 +141,6 @@ public class BackupWorker extends Worker {
     }
 
     private void showNotification(String title, String msg) {
-        // FIXED: Using Notification class here
         Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentTitle(title)
@@ -141,10 +152,9 @@ public class BackupWorker extends Worker {
     }
 
     private ForegroundInfo createForegroundInfo(String text) {
-        // FIXED: Using Notification class here
         Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Photogram Syncing")
+                .setContentTitle("Photogram")
                 .setContentText(text)
                 .setOngoing(true)
                 .build();

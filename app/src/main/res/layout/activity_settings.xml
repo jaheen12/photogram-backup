@@ -13,25 +13,19 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Telegram Bot Setup"
+            android:text="Telegram Setup"
             android:textSize="22sp"
             android:textStyle="bold"
             android:textColor="#242F3D"
             android:layout_marginBottom="20dp"/>
 
-        <EditText
-            android:id="@+id/etBotToken"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Bot Token (from @BotFather)"
-            android:inputType="textPassword"
-            android:layout_marginBottom="10dp"/>
+        <!-- Token EditText REMOVED -->
 
         <EditText
             android:id="@+id/etChatId"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Chat ID (e.g. -100...)"
+            android:hint="Group Chat ID (e.g. -100...)"
             android:inputType="text"
             android:layout_marginBottom="10dp"/>
 
@@ -65,19 +59,8 @@
             android:layout_marginTop="5dp"
             android:padding="10dp"
             android:background="#FFFFFF">
-
-            <RadioButton
-                android:id="@+id/rbAny"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Any Network (Data/Wi-Fi)"
-                android:checked="true" />
-
-            <RadioButton
-                android:id="@+id/rbWifi"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Wi-Fi Only" />
+            <RadioButton android:id="@+id/rbAny" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Any Network" />
+            <RadioButton android:id="@+id/rbWifi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Wi-Fi Only" />
         </RadioGroup>
 
         <Button
@@ -88,6 +71,5 @@
             android:layout_marginTop="30dp"
             android:backgroundTint="#0088CC"
             android:textColor="#FFFFFF"/>
-
     </LinearLayout>
 </ScrollView>
