@@ -18,7 +18,18 @@
     <ListView
         android:id="@+id/logListView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:divider="#333333"
-        android:dividerHeight="1dp" />
+        android:dividerHeight="1dp"
+        android:padding="10dp" />
+
+    <Button
+        android:id="@+id/btnCloseLogs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Close"
+        android:layout_margin="10dp"
+        android:backgroundTint="#444444"
+        android:textColor="#FFFFFF"/>
 </LinearLayout>

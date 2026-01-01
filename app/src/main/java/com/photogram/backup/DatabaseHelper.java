@@ -9,9 +9,8 @@ import java.io.File;
 import java.util.ArrayList;
 
 public class DatabaseHelper extends SQLiteOpenHelper {
-
-    private static final String DATABASE_NAME = "photogram_history.db";
-    private static final int DATABASE_VERSION = 3;
+    private static final String DATABASE_NAME = "photogram_v5.db"; // New name to avoid conflicts
+    private static final int DATABASE_VERSION = 1;
 
     public DatabaseHelper(Context context) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
@@ -22,37 +21,36 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE history (id INTEGER PRIMARY KEY AUTOINCREMENT, file_path TEXT, last_modified LONG, upload_date LONG)");
         db.execSQL("CREATE INDEX idx_path ON history (file_path)");
         db.execSQL("CREATE TABLE folders (path TEXT PRIMARY KEY, name TEXT)");
-        // NEW: Logs table
-        db.execSQL("CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp LONG, message TEXT, type TEXT)");
+        db.execSQL("CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp LONG, type TEXT, message TEXT)");
     }
 
     @Override
-    public void onUpgrade(SQLiteDatabase db, int old, int next) {
-        if (old < 2) db.execSQL("CREATE TABLE folders (path TEXT PRIMARY KEY, name TEXT)");
-        if (old < 3) db.execSQL("CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp LONG, message TEXT, type TEXT)");
-    }
+    public void onUpgrade(SQLiteDatabase db, int old, int next) {}
 
     public void addLog(String type, String message) {
-        SQLiteDatabase db = this.getWritableDatabase();
-        ContentValues v = new ContentValues();
-        v.put("timestamp", System.currentTimeMillis());
-        v.put("type", type);
-        v.put("message", message);
-        db.insert("logs", null, v);
-        // Keep only last 100 logs
-        db.execSQL("DELETE FROM logs WHERE id NOT IN (SELECT id FROM logs ORDER BY timestamp DESC LIMIT 100)");
+        try {
+            SQLiteDatabase db = this.getWritableDatabase();
+            ContentValues v = new ContentValues();
+            v.put("timestamp", System.currentTimeMillis());
+            v.put("type", type);
+            v.put("message", message);
+            db.insert("logs", null, v);
+            db.execSQL("DELETE FROM logs WHERE id NOT IN (SELECT id FROM logs ORDER BY timestamp DESC LIMIT 50)");
+        } catch (Exception e) { e.printStackTrace(); }
     }
 
     public ArrayList<String> getRecentLogs() {
         ArrayList<String> list = new ArrayList<>();
-        SQLiteDatabase db = this.getReadableDatabase();
-        Cursor c = db.query("logs", null, null, null, null, null, "timestamp DESC");
-        if (c.moveToFirst()) {
-            do {
-                list.add("[" + c.getString(c.getColumnIndexOrThrow("type")) + "] " + c.getString(c.getColumnIndexOrThrow("message")));
-            } while (c.moveToNext());
-        }
-        c.close();
+        try {
+            SQLiteDatabase db = this.getReadableDatabase();
+            Cursor c = db.query("logs", null, null, null, null, null, "timestamp DESC");
+            if (c != null && c.moveToFirst()) {
+                do {
+                    list.add("[" + c.getString(2) + "] " + c.getString(3));
+                } while (c.moveToNext());
+                c.close();
+            }
+        } catch (Exception e) { list.add("Error loading logs"); }
         return list;
     }
 
