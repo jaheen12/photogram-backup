@@ -7,14 +7,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Environment;
-import android.os.PowerManager;
+import android.os.*;
 import android.provider.Settings;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
+import android.view.*;
 import android.widget.*;
 import androidx.work.*;
 import java.io.File;
@@ -25,7 +20,6 @@ public class MainActivity extends Activity {
     ListView listView;
     ArrayList<File> imageFolders = new ArrayList<>();
     SharedPreferences prefs;
-    private static final int PERM_CODE = 101;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,10 +32,9 @@ public class MainActivity extends Activity {
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
 
         Button btnBackup = findViewById(R.id.btnStartBackup);
-        btnBackup.setText("SYNC NOW (BACKGROUND)");
         btnBackup.setOnClickListener(v -> {
-            scheduleBackup(true);
-            Toast.makeText(this, "Background Sync Started!", Toast.LENGTH_SHORT).show();
+            scheduleBackup(true); // Immediate manual trigger
+            Toast.makeText(this, "Manual Sync Started!", Toast.LENGTH_SHORT).show();
         });
 
         handlePermissions();
@@ -68,16 +61,13 @@ public class MainActivity extends Activity {
             perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
         }
 
-        boolean needRequest = false;
+        boolean needsRequest = false;
         for (String p : perms) {
-            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) needRequest = true;
+            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) needsRequest = true;
         }
 
-        if (needRequest) {
-            requestPermissions(perms.toArray(new String[0]), PERM_CODE);
-        } else {
-            startAppLogic();
-        }
+        if (needsRequest) requestPermissions(perms.toArray(new String[0]), 101);
+        else startAppLogic();
     }
 
     @Override
@@ -91,7 +81,7 @@ public class MainActivity extends Activity {
             recursiveScan(Environment.getExternalStorageDirectory());
             runOnUiThread(this::setupAdapter);
         }).start();
-        scheduleBackup(false);
+        scheduleBackup(false); // Init periodic scheduler
     }
 
     private void recursiveScan(File dir) {
@@ -101,28 +91,31 @@ public class MainActivity extends Activity {
         for (File f : files) {
             if (f.isDirectory()) {
                 if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f);
-            } else if (isImg(f)) { hasImg = true; }
+            } else {
+                String n = f.getName().toLowerCase();
+                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) hasImg = true;
+            }
         }
         if (hasImg) imageFolders.add(dir);
     }
 
-    private boolean isImg(File f) {
-        String n = f.getName().toLowerCase();
-        return n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp");
-    }
-
     private void scheduleBackup(boolean immediate) {
         int interval = prefs.getInt("sync_interval", 60);
-        Constraints constraints = new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build();
 
         if (immediate) {
-            OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(constraints).build();
+            Data inputData = new Data.Builder().putBoolean("is_manual", true).build();
+            OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(BackupWorker.class)
+                    .setConstraints(constraints).setInputData(inputData).build();
             WorkManager.getInstance(this).enqueue(request);
         }
 
         PeriodicWorkRequest periodicRequest = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES)
                 .setConstraints(constraints).build();
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.UPDATE, periodicRequest);
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, periodicRequest);
     }
 
     void setupAdapter() {
