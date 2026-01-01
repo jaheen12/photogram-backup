@@ -1,5 +1,6 @@
 package com.photogram.backup;
 
+import android.app.Notification; // FIXED: Added this missing import
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.ContentResolver;
@@ -14,6 +15,7 @@ import androidx.core.app.NotificationCompat;
 import androidx.work.ForegroundInfo;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
+import androidx.work.Data; // Added for safety
 import java.io.File;
 import java.util.concurrent.TimeUnit;
 
@@ -31,7 +33,6 @@ public class BackupWorker extends Worker {
         super(context, params);
         this.context = context;
         this.prefs = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
-        // Using the new Phase 5 robust database
         this.dbHelper = new DatabaseHelper(context);
         this.notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
     }
@@ -39,7 +40,6 @@ public class BackupWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        // 1. Initial Checks (Failsafe & Auth)
         boolean isManual = getInputData().getBoolean("is_manual", false);
         long lastSyncSeconds = prefs.getLong("last_sync_timestamp", 0) / 1000;
         int intervalMins = prefs.getInt("sync_interval", 60);
@@ -51,12 +51,12 @@ public class BackupWorker extends Worker {
         String token = prefs.getString("bot_token", "");
         String chatId = prefs.getString("chat_id", "");
         if (token.isEmpty() || chatId.isEmpty()) {
-            dbHelper.addLog("ERROR", "Backup failed: Bot Token or Chat ID is missing.");
+            dbHelper.addLog("ERROR", "Backup failed: Token or Chat ID missing.");
             return Result.failure();
         }
 
-        // 2. Start Sync with Notification
         createNotificationChannel();
+        // The fix allows this method to return a valid Notification
         setForegroundAsync(createForegroundInfo("Starting smart sync..."));
         dbHelper.addLog("INFO", "Backup started" + (isManual ? " (Manual)" : " (Scheduled)"));
 
@@ -65,15 +65,11 @@ public class BackupWorker extends Worker {
 
         try {
             uploadedCount = performDeltaSync(lastSyncSeconds, helper);
-            
-            // 3. Finalize
             prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
             dbHelper.addLog("SUCCESS", "Backup complete. " + uploadedCount + " new photos saved.");
-            showNotification("Photogram Sync", "Backup Complete! " + uploadedCount + " new items.");
-            
+            showNotification("Photogram Sync", "Backup Complete! " + uploadedCount + " items.");
         } catch (Exception e) {
             dbHelper.addLog("RETRY", "Network error: " + e.getMessage());
-            // This tells WorkManager to try again later with Exponential Backoff
             return Result.retry(); 
         }
 
@@ -97,27 +93,18 @@ public class BackupWorker extends Worker {
 
                 do {
                     if (isStopped()) break;
-
                     String filePath = cursor.getString(dataIdx);
                     long modifiedTime = cursor.getLong(dateIdx);
                     File file = new File(filePath);
                     File parent = file.getParentFile();
 
-                    // Check if the user has enabled backup for this specific folder
                     if (parent != null && prefs.getBoolean(parent.getAbsolutePath(), false)) {
-                        
-                        // Check Database to prevent duplicates
                         if (!dbHelper.isFileUploaded(filePath, modifiedTime)) {
                             String threadId = getOrCreateTopic(parent, helper);
-                            
                             if (!threadId.isEmpty() && helper.uploadPhoto(file, threadId)) {
                                 dbHelper.markAsUploaded(filePath, modifiedTime);
                                 count++;
-                                
-                                // TELEGRAM FLOOD CONTROL: 
-                                // We pause for 3 seconds to avoid being flagged as spam by Telegram
-                                Thread.sleep(3000); 
-                                
+                                Thread.sleep(3000); // Flood control
                                 if (count % 2 == 0) {
                                     showNotification("Photogram Syncing", "Uploaded " + count + " photos...");
                                 }
@@ -134,7 +121,7 @@ public class BackupWorker extends Worker {
         String key = "topic_" + dir.getAbsolutePath();
         String id = prefs.getString(key, "");
         if (id.isEmpty()) {
-            dbHelper.addLog("TOPIC", "Creating new topic for: " + dir.getName());
+            dbHelper.addLog("TOPIC", "Creating topic for: " + dir.getName());
             id = helper.createTopic(dir.getName());
             prefs.edit().putString(key, id).apply();
         }
@@ -142,16 +129,19 @@ public class BackupWorker extends Worker {
     }
 
     private void showNotification(String title, String msg) {
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
+        // FIXED: Using Notification class here
+        Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentTitle(title)
                 .setContentText(msg)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setSilent(true);
-        notificationManager.notify(NOTIF_ID, builder.build());
+                .setSilent(true)
+                .build();
+        notificationManager.notify(NOTIF_ID, notification);
     }
 
     private ForegroundInfo createForegroundInfo(String text) {
+        // FIXED: Using Notification class here
         Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentTitle("Photogram Syncing")
