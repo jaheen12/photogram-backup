@@ -5,14 +5,16 @@
     android:layout_height="match_parent"
     android:background="@color/surface_bg">
 
-    <!-- Header Section (Dashboard) -->
+    <!-- Compact Header Section -->
     <LinearLayout
         android:id="@+id/header"
         android:layout_width="match_parent"
-        android:layout_height="220dp"
+        android:layout_height="170dp"
         android:background="@drawable/dashboard_modern_bg"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingLeft="24dp"
+        android:paddingRight="24dp"
+        android:paddingTop="20dp">
 
         <TextView
             android:id="@+id/tvTotalStats"
@@ -20,9 +22,8 @@
             android:layout_height="wrap_content"
             android:text="0 Items Saved"
             android:textColor="@color/text_white"
-            android:textSize="26sp"
-            android:textStyle="bold"
-            android:layout_marginTop="10dp"/>
+            android:textSize="20sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvLastSync"
@@ -30,74 +31,75 @@
             android:layout_height="wrap_content"
             android:text="Last Sync: Never"
             android:textColor="#B0FFFFFF"
-            android:textSize="13sp" />
+            android:textSize="12sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="16dp"
             android:gravity="center_vertical">
 
             <Button
                 android:id="@+id/btnStartBackup"
                 android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1.2"
+                android:layout_height="42dp"
+                android:layout_weight="1"
                 android:text="Sync Now"
                 android:textAllCaps="false"
                 android:backgroundTint="@color/surface_card"
                 android:textColor="@color/brand_deep"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
-            <View android:layout_width="12dp" android:layout_height="0dp"/>
+            <View android:layout_width="10dp" android:layout_height="0dp"/>
 
             <ImageButton
                 android:id="@+id/btnLogs"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
                 android:src="@drawable/ic_history_modern"
                 android:background="@drawable/button_white_bg"
-                android:padding="12dp"
+                android:padding="10dp"
                 android:scaleType="fitCenter" />
 
-            <View android:layout_width="12dp" android:layout_height="0dp"/>
+            <View android:layout_width="10dp" android:layout_height="0dp"/>
 
             <ImageButton
                 android:id="@+id/btnSettings"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
                 android:src="@drawable/ic_settings_modern"
                 android:background="@drawable/button_white_bg"
-                android:padding="12dp"
+                android:padding="10dp"
                 android:scaleType="fitCenter" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Floating Search Bar -->
+    <!-- Floating Search Bar (Positioned precisely over the slim header) -->
     <EditText
         android:id="@+id/etSearch"
         android:layout_width="match_parent"
-        android:layout_height="54dp"
+        android:layout_height="50dp"
         android:layout_below="@id/header"
-        android:layout_marginTop="-27dp"
+        android:layout_marginTop="-25dp"
         android:layout_marginLeft="24dp"
         android:layout_marginRight="24dp"
         android:background="@drawable/search_bar_bg"
-        android:elevation="8dp"
-        android:hint="Search your gallery..."
-        android:paddingLeft="20dp"
+        android:elevation="6dp"
+        android:hint="Search folders..."
+        android:paddingLeft="18dp"
         android:drawableLeft="@android:drawable/ic_menu_search"
-        android:drawablePadding="12dp"
+        android:drawablePadding="10dp"
         android:singleLine="true"
-        android:textSize="15sp" />
+        android:textSize="14sp" />
 
-    <!-- Correctly Positioned Scrollable Content -->
+    <!-- List View starts closer to the top now -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="235dp"> <!-- FIXED: This margin clears the search bar -->
+        android:layout_marginTop="180dp"> 
 
         <ListView
             android:id="@+id/folderListView"
@@ -107,7 +109,7 @@
             android:dividerHeight="0dp"
             android:paddingLeft="16dp"
             android:paddingRight="16dp"
-            android:paddingTop="15dp" 
+            android:paddingTop="12dp" 
             android:paddingBottom="20dp"
             android:clipToPadding="false" />
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
