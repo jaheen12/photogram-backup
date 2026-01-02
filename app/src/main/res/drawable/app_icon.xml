@@ -1,41 +1,71 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
-  <!-- Background with gradient -->
-  <defs>
-    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#4A90E2;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#357ABD;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="cloudGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#F0F4F8;stop-opacity:1" />
-    </linearGradient>
-  </defs>
-  
-  <!-- Background Circle -->
-  <circle cx="54" cy="54" r="50" fill="url(#bgGradient)"/>
-  
-  <!-- Cloud Shape -->
-  <path d="M 68 48 C 68 43.5 64.5 40 60 40 C 59.5 40 59 40.1 58.5 40.2 C 57 36.5 53.5 34 49.5 34 C 44.3 34 40 38.3 40 43.5 C 40 44 40.1 44.5 40.2 45 C 36.8 45.5 34 48.5 34 52 C 34 55.9 37.1 59 41 59 L 65 59 C 68.9 59 72 55.9 72 52 C 72 49.8 70.5 48 68.5 47.2 Z" 
-        fill="url(#cloudGradient)" 
-        opacity="0.95"/>
-  
-  <!-- Photo/Image icon inside cloud -->
-  <rect x="42" y="50" width="24" height="18" rx="2" fill="#4A90E2" opacity="0.9"/>
-  <rect x="43.5" y="51.5" width="21" height="15" rx="1" fill="#FFFFFF"/>
-  
-  <!-- Mountain shape in photo -->
-  <path d="M 43.5 63 L 49 56 L 54 61 L 60 54 L 64.5 60 L 64.5 66.5 L 43.5 66.5 Z" 
-        fill="#4A90E2" 
-        opacity="0.6"/>
-  
-  <!-- Sun/circle in photo -->
-  <circle cx="59" cy="55.5" r="2" fill="#FDB813" opacity="0.8"/>
-  
-  <!-- Upload arrow -->
-  <path d="M 54 42 L 54 50 M 54 42 L 51 45 M 54 42 L 57 45" 
-        stroke="#FFFFFF" 
-        stroke-width="2.5" 
-        stroke-linecap="round" 
-        stroke-linejoin="round" 
-        fill="none"/>
-</svg>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/apk/res-auto"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background Circle with Gradient -->
+    <path android:pathData="M54,54m-50,0a50,50 0,1 1,100 0a50,50 0,1 1,-100 0">
+        <intent-filter>
+            <gradient 
+                android:startX="0" 
+                android:startY="0" 
+                android:endX="108" 
+                android:endY="108" 
+                android:type="linear">
+                <item android:offset="0" android:color="#4A90E2" />
+                <item android:offset="1" android:color="#357ABD" />
+            </gradient>
+        </intent-filter>
+    </path>
+
+    <!-- Cloud Shape -->
+    <path 
+        android:pathData="M68,48C68,43.5 64.5,40 60,40C59.5,40 59,40.1 58.5,40.2C57,36.5 53.5,34 49.5,34C44.3,34 40,38.3 40,43.5C40,44 40.1,44.5 40.2,45C36.8,45.5 34,48.5 34,52C34,55.9 37.1,59 41,59L65,59C68.9,59 72,55.9 72,52C72,49.8 70.5,48 68.5,47.2Z"
+        android:fillAlpha="0.95">
+        <intent-filter>
+            <gradient 
+                android:startX="54" 
+                android:startY="34" 
+                android:endX="54" 
+                android:endY="59" 
+                android:type="linear">
+                <item android:offset="0" android:color="#FFFFFF" />
+                <item android:offset="1" android:color="#F0F4F8" />
+            </gradient>
+        </intent-filter>
+    </path>
+
+    <!-- Photo Icon Frame -->
+    <path 
+        android:pathData="M42,50h24v18h-24z"
+        android:fillColor="#4A90E2"
+        android:fillAlpha="0.9" />
+    
+    <!-- Photo Content White -->
+    <path 
+        android:pathData="M43.5,51.5h21v15h-21z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Mountain shape in photo -->
+    <path 
+        android:pathData="M43.5,63L49,56L54,61L60,54L64.5,60L64.5,66.5L43.5,66.5Z"
+        android:fillColor="#4A90E2"
+        android:fillAlpha="0.6" />
+
+    <!-- Sun in photo -->
+    <path 
+        android:pathData="M59,55.5m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0"
+        android:fillColor="#FDB813"
+        android:fillAlpha="0.8" />
+
+    <!-- Upload arrow -->
+    <path 
+        android:pathData="M54,42L54,50M54,42L51,45M54,42L57,45"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+</vector>
