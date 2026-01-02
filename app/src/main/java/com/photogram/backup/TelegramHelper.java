@@ -26,7 +26,8 @@ public class TelegramHelper {
                 .build();
     }
 
-    public String uploadHistoryFile(String jsonContent) throws IOException {
+    // FIXED: Added throws Exception to handle JSONException
+    public String uploadHistoryFile(String jsonContent) throws Exception {
         File tempFile = File.createTempFile("history", ".json");
         java.io.FileWriter writer = new java.io.FileWriter(tempFile);
         writer.write(jsonContent);
@@ -41,7 +42,8 @@ public class TelegramHelper {
 
         Request request = new Request.Builder().url(API_URL + "sendDocument").post(body).build();
         try (Response response = client.newCall(request).execute()) {
-            JSONObject res = new JSONObject(response.body().string());
+            String responseData = response.body().string();
+            JSONObject res = new JSONObject(responseData);
             if (res.getBoolean("ok")) {
                 return res.getJSONObject("result").getJSONObject("document").getString("file_id");
             }
@@ -49,11 +51,13 @@ public class TelegramHelper {
         return null;
     }
 
+    // FIXED: Added throws Exception
     public String downloadHistoryFile(String fileId) throws Exception {
         Request req = new Request.Builder().url(API_URL + "getFile?file_id=" + fileId).build();
         String filePath;
         try (Response res = client.newCall(req).execute()) {
-            filePath = new JSONObject(res.body().string()).getJSONObject("result").getString("file_path");
+            JSONObject json = new JSONObject(res.body().string());
+            filePath = json.getJSONObject("result").getString("file_path");
         }
 
         String downloadUrl = "https://api.telegram.org/file/bot" + botToken + "/" + filePath;
@@ -79,7 +83,7 @@ public class TelegramHelper {
                     }
                 }
             }
-        } catch (Exception e) { e.printStackTrace(); }
+        }
         return registry;
     }
 
@@ -100,14 +104,26 @@ public class TelegramHelper {
         FormBody body = new FormBody.Builder().add("chat_id", chatId).add("name", "📁 " + name).build();
         Request request = new Request.Builder().url(API_URL + "createForumTopic").post(body).build();
         try (Response response = client.newCall(request).execute()) {
-            return new JSONObject(response.body().string()).getJSONObject("result").getString("message_thread_id");
+            JSONObject json = new JSONObject(response.body().string());
+            return json.getJSONObject("result").getString("message_thread_id");
         }
     }
 
-    public boolean uploadPhoto(File photo, String threadId) throws IOException {
-        RequestBody body = new MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("chat_id", chatId).addFormDataPart("message_thread_id", threadId).addFormDataPart("photo", photo.getName(), RequestBody.create(photo, MediaType.parse("image/jpeg"))).build();
-        try (Response response = client.newCall(new Request.Builder().url(API_URL + "sendPhoto").post(body).build()).execute()) {
-            return response.isSuccessful();
+    public boolean uploadPhoto(File photo, String threadId) {
+        try {
+            RequestBody body = new MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("chat_id", chatId)
+                    .addFormDataPart("message_thread_id", threadId)
+                    .addFormDataPart("photo", photo.getName(), 
+                            RequestBody.create(photo, MediaType.parse("image/jpeg")))
+                    .build();
+            Request request = new Request.Builder().url(API_URL + "sendPhoto").post(body).build();
+            try (Response response = client.newCall(request).execute()) {
+                return response.isSuccessful();
+            }
+        } catch (Exception e) {
+            return false;
         }
     }
 }
