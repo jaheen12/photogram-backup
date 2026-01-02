@@ -5,11 +5,13 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.io.File;
 import java.util.ArrayList;
 
 public class DatabaseHelper extends SQLiteOpenHelper {
-    private static final String DATABASE_NAME = "photogram_v5.db"; // New name to avoid conflicts
+    private static final String DATABASE_NAME = "photogram_v5.db";
     private static final int DATABASE_VERSION = 1;
 
     public DatabaseHelper(Context context) {
@@ -26,6 +28,46 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int old, int next) {}
+
+    // --- CLOUD SYNC METHODS ---
+
+    public String exportHistoryToJson() {
+        SQLiteDatabase db = this.getReadableDatabase();
+        JSONArray array = new JSONArray();
+        Cursor c = db.query("history", new String[]{"file_path", "last_modified"}, null, null, null, null, null);
+        try {
+            if (c != null && c.moveToFirst()) {
+                do {
+                    JSONObject obj = new JSONObject();
+                    obj.put("p", c.getString(0)); // path
+                    obj.put("m", c.getLong(1));   // modified
+                    array.put(obj);
+                } while (c.moveToNext());
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+        finally { if (c != null) c.close(); }
+        return array.toString();
+    }
+
+    public void importHistoryFromJson(String json) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        try {
+            JSONArray array = new JSONArray(json);
+            db.beginTransaction();
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject obj = array.getJSONObject(i);
+                ContentValues v = new ContentValues();
+                v.put("file_path", obj.getString("p"));
+                v.put("last_modified", obj.getLong("m"));
+                v.put("upload_date", System.currentTimeMillis());
+                db.insertWithOnConflict("history", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+            }
+            db.setTransactionSuccessful();
+        } catch (Exception e) { e.printStackTrace(); }
+        finally { db.endTransaction(); }
+    }
+
+    // --- EXISTING LOGIC ---
 
     public void addLog(String type, String message) {
         try {
@@ -45,9 +87,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
             SQLiteDatabase db = this.getReadableDatabase();
             Cursor c = db.query("logs", null, null, null, null, null, "timestamp DESC");
             if (c != null && c.moveToFirst()) {
-                do {
-                    list.add("[" + c.getString(2) + "] " + c.getString(3));
-                } while (c.moveToNext());
+                do { list.add("[" + c.getString(2) + "] " + c.getString(3)); } while (c.moveToNext());
                 c.close();
             }
         } catch (Exception e) { list.add("Error loading logs"); }

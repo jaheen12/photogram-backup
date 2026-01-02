@@ -3,36 +3,35 @@ package com.photogram.backup;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
+import android.provider.MediaStore;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.work.ForegroundInfo;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
+import androidx.work.Data;
 import java.io.File;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class BackupWorker extends Worker {
-
     private static final String CHANNEL_ID = "sync_channel";
     private static final int NOTIF_ID = 1;
-
     private final SharedPreferences prefs;
-    private final SharedPreferences history;
     private final DatabaseHelper dbHelper;
     private final NotificationManager notificationManager;
+    private final Context context;
 
     public BackupWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
+        this.context = context;
         this.prefs = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
-        this.history = context.getSharedPreferences("HistoryPrefs", Context.MODE_PRIVATE);
         this.dbHelper = new DatabaseHelper(context);
         this.notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
     }
@@ -40,140 +39,100 @@ public class BackupWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        // 1. Failsafe Check
-        boolean isManual = getInputData().getBoolean("is_manual", false);
-        long lastSync = prefs.getLong("last_sync_timestamp", 0);
-        int intervalMins = prefs.getInt("sync_interval", 60);
-
-        if (!isManual && (System.currentTimeMillis() - lastSync < TimeUnit.MINUTES.toMillis(intervalMins))) {
-            return Result.success();
-        }
-
-        // 2. Setup Notification
-        createNotificationChannel();
-        setForegroundAsync(createForegroundInfo("Starting persistent sync..."));
-
-        // Use the Secure Injected Token or Custom User Token
         String userToken = prefs.getString("custom_bot_token", "");
         final String token = (userToken != null && !userToken.isEmpty()) ? userToken : BuildConfig.BOT_TOKEN;
         String chatId = prefs.getString("chat_id", "");
-
         if (token.isEmpty() || chatId.isEmpty()) return Result.failure();
 
+        createNotificationChannel();
+        setForegroundAsync(createForegroundInfo("Restoring cloud history..."));
         TelegramHelper helper = new TelegramHelper(token, chatId);
-        int uploadedCount = 0;
 
         try {
-            uploadedCount = scanAndUploadPersistent(Environment.getExternalStorageDirectory(), helper);
+            // 1. FETCH REGISTRY
+            Map<String, String> registry = helper.getTopicRegistry();
+
+            // 2. RESTORE HISTORY ON REINSTALL
+            if (dbHelper.getTotalBackupCount() == 0 && registry.containsKey("CLOUD_HISTORY_ID")) {
+                dbHelper.addLog("INFO", "Restoring photo history from Telegram...");
+                String historyJson = helper.downloadHistoryFile(registry.get("CLOUD_HISTORY_ID"));
+                dbHelper.importHistoryFromJson(historyJson);
+                dbHelper.addLog("SUCCESS", "Memory restored! Skipping old photos.");
+            }
+
+            // 3. RUN BACKUP
+            int uploadedCount = performDeltaSync(prefs.getLong("last_sync_timestamp", 0) / 1000, helper, registry);
+
+            // 4. SAVE NEW HISTORY BACK TO CLOUD
+            if (uploadedCount > 0 || !registry.containsKey("CLOUD_HISTORY_ID")) {
+                dbHelper.addLog("INFO", "Backing up memory to Telegram...");
+                String newFileId = helper.uploadHistoryFile(dbHelper.exportHistoryToJson());
+                if (newFileId != null) {
+                    registry.put("CLOUD_HISTORY_ID", newFileId);
+                    helper.saveTopicRegistry(registry);
+                }
+            }
+
+            prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
+            dbHelper.addLog("SUCCESS", "Sync Complete. Uploaded: " + uploadedCount);
+            return Result.success();
+
         } catch (Exception e) {
-            dbHelper.addLog("ERROR", "Backup Interrupted: " + e.getMessage());
+            dbHelper.addLog("ERROR", "Sync Failed: " + e.getMessage());
             return Result.retry();
         }
-
-        prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
-        dbHelper.addLog("SUCCESS", "Sync Complete. " + uploadedCount + " new photos saved.");
-        showNotification("Photogram Sync", "Backup complete • " + uploadedCount + " new items");
-        
-        return Result.success();
     }
 
-    private int scanAndUploadPersistent(File root, TelegramHelper helper) throws Exception {
+    private int performDeltaSync(long since, TelegramHelper helper, Map<String, String> registry) throws Exception {
         int count = 0;
-        Deque<File> stack = new ArrayDeque<>();
-        stack.push(root);
-
-        // Fetch the Registry from Telegram once at the start
-        Map<String, String> remoteRegistry = helper.getTopicRegistry();
-
-        while (!stack.isEmpty() && !isStopped()) {
-            File dir = stack.pop();
-            File[] files = dir.listFiles();
-            if (files == null) continue;
-
-            boolean enabled = prefs.getBoolean(dir.getAbsolutePath(), false);
-
-            if (enabled) {
-                String threadId = getOrCreateTopicPersistent(dir, helper, remoteRegistry);
-                
-                for (File f : files) {
+        ContentResolver resolver = context.getContentResolver();
+        Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+        try (Cursor cursor = resolver.query(uri, new String[]{MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_MODIFIED}, MediaStore.Images.Media.DATE_MODIFIED + " > ?", new String[]{String.valueOf(since)}, MediaStore.Images.Media.DATE_MODIFIED + " ASC")) {
+            if (cursor != null && cursor.moveToFirst()) {
+                do {
                     if (isStopped()) break;
-                    if (f.isDirectory()) {
-                        if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) {
-                            stack.push(f);
-                        }
-                    } else if (isImage(f)) {
-                        String fileKey = f.getAbsolutePath() + "_" + f.lastModified();
-                        // Use Database for history to handle re-installs
-                        if (!dbHelper.isFileUploaded(f.getAbsolutePath(), f.lastModified())) {
-                            if (helper.uploadPhoto(f, threadId)) {
-                                dbHelper.markAsUploaded(f.getAbsolutePath(), f.lastModified());
+                    String path = cursor.getString(0);
+                    long mod = cursor.getLong(1);
+                    File file = new File(path);
+                    File parent = file.getParentFile();
+                    if (parent != null && prefs.getBoolean(parent.getAbsolutePath(), false)) {
+                        if (!dbHelper.isFileUploaded(path, mod)) {
+                            String tid = getTopic(parent, helper, registry);
+                            if (!tid.isEmpty() && helper.uploadPhoto(file, tid)) {
+                                dbHelper.markAsUploaded(path, mod);
                                 count++;
-                                Thread.sleep(3000); // Flood Control
-                                if (count % 3 == 0) showNotification("Syncing...", "Saved " + count + " items");
+                                Thread.sleep(3000); // Respect Telegram Limits
                             }
                         }
                     }
-                }
-            } else {
-                // If not enabled, we still push subfolders to the stack to keep scanning
-                for (File f : files) {
-                    if (f.isDirectory() && !f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) {
-                        stack.push(f);
-                    }
-                }
+                } while (cursor.moveToNext());
             }
         }
         return count;
     }
 
-    private String getOrCreateTopicPersistent(File dir, TelegramHelper helper, Map<String, String> remoteRegistry) throws Exception {
-        String localKey = "topic_" + dir.getAbsolutePath();
-        String threadId = prefs.getString(localKey, "");
-
-        if (threadId.isEmpty()) {
-            // Check if Telegram's pinned registry knows about this folder
-            if (remoteRegistry.containsKey(dir.getName())) {
-                threadId = remoteRegistry.get(dir.getName());
-                dbHelper.addLog("INFO", "Restored topic ID for: " + dir.getName());
-            } else {
-                // Create brand new
-                dbHelper.addLog("TOPIC", "Creating brand new topic: " + dir.getName());
-                threadId = helper.createTopic(dir.getName());
-                // Update remote registry immediately
-                remoteRegistry.put(dir.getName(), threadId);
-                helper.saveTopicRegistry(remoteRegistry);
-            }
-            // Cache locally
-            prefs.edit().putString(localKey, threadId).apply();
-        }
-        return threadId;
-    }
-
-    private boolean isImage(File f) {
-        String n = f.getName().toLowerCase(Locale.US);
-        return n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic");
-    }
-
-    private ForegroundInfo createForegroundInfo(String text) {
-        Notification n = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Photogram")
-                .setContentText(text)
-                .setOngoing(true).build();
-        return new ForegroundInfo(NOTIF_ID, n);
+    private String getTopic(File dir, TelegramHelper helper, Map<String, String> registry) throws Exception {
+        String name = dir.getName();
+        if (registry.containsKey(name)) return registry.get(name);
+        String id = helper.createTopic(name);
+        registry.put(name, id);
+        helper.saveTopicRegistry(registry);
+        return id;
     }
 
     private void showNotification(String title, String msg) {
-        Notification n = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle(title).setContentText(msg).setPriority(NotificationCompat.PRIORITY_LOW).build();
+        Notification n = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID).setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle(title).setContentText(msg).setSilent(true).build();
         notificationManager.notify(NOTIF_ID, n);
+    }
+
+    private ForegroundInfo createForegroundInfo(String text) {
+        Notification n = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID).setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("Photogram").setContentText(text).setOngoing(true).build();
+        return new ForegroundInfo(NOTIF_ID, n);
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel c = new NotificationChannel(CHANNEL_ID, "Sync Status", NotificationManager.IMPORTANCE_LOW);
-            notificationManager.createNotificationChannel(c);
+            notificationManager.createNotificationChannel(new android.app.NotificationChannel(CHANNEL_ID, "Sync", NotificationManager.IMPORTANCE_LOW));
         }
     }
 }
