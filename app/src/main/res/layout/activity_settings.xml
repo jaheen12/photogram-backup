@@ -19,7 +19,20 @@
             android:textColor="#242F3D"
             android:layout_marginBottom="20dp"/>
 
-        <!-- Token EditText REMOVED -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bot Token (Optional - Leave blank for Official Bot)"
+            android:textSize="12sp"
+            android:textColor="#666666" />
+
+        <EditText
+            android:id="@+id/etBotToken"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Your Bot Token"
+            android:inputType="textPassword"
+            android:layout_marginBottom="15dp"/>
 
         <EditText
             android:id="@+id/etChatId"
@@ -27,13 +40,12 @@
             android:layout_height="wrap_content"
             android:hint="Group Chat ID (e.g. -100...)"
             android:inputType="text"
-            android:layout_marginBottom="10dp"/>
+            android:layout_marginBottom="15dp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Sync Frequency (Minutes)"
-            android:layout_marginTop="10dp"/>
+            android:text="Sync Frequency (Minutes)" />
 
         <EditText
             android:id="@+id/etInterval"
@@ -41,15 +53,13 @@
             android:layout_height="wrap_content"
             android:hint="60"
             android:inputType="number"
-            android:layout_marginBottom="10dp"/>
+            android:layout_marginBottom="15dp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Network Preferences"
-            android:layout_marginTop="20dp"
-            android:textStyle="bold"
-            android:textColor="#242F3D"/>
+            android:textStyle="bold" />
 
         <RadioGroup
             android:id="@+id/rgNetwork"

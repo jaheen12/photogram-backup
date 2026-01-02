@@ -8,7 +8,7 @@ import android.widget.*;
 
 public class SettingsActivity extends Activity {
     SharedPreferences prefs;
-    EditText etChatId, etInterval;
+    EditText etBotToken, etChatId, etInterval;
     RadioButton rbWifi, rbAny;
 
     @Override
@@ -17,6 +17,7 @@ public class SettingsActivity extends Activity {
         setContentView(R.layout.activity_settings);
 
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
+        etBotToken = findViewById(R.id.etBotToken);
         etChatId = findViewById(R.id.etChatId);
         etInterval = findViewById(R.id.etInterval);
         rbWifi = findViewById(R.id.rbWifi);
@@ -24,6 +25,7 @@ public class SettingsActivity extends Activity {
         Button btnSave = findViewById(R.id.btnSave);
 
         // Load existing values
+        etBotToken.setText(prefs.getString("custom_bot_token", ""));
         etChatId.setText(prefs.getString("chat_id", ""));
         etInterval.setText(String.valueOf(prefs.getInt("sync_interval", 60)));
         
@@ -32,7 +34,8 @@ public class SettingsActivity extends Activity {
 
         btnSave.setOnClickListener(v -> {
             prefs.edit()
-                .putString("chat_id", etChatId.getText().toString())
+                .putString("custom_bot_token", etBotToken.getText().toString().trim())
+                .putString("chat_id", etChatId.getText().toString().trim())
                 .putInt("sync_interval", Integer.parseInt(etInterval.getText().toString()))
                 .putBoolean("only_wifi", rbWifi.isChecked())
                 .apply();

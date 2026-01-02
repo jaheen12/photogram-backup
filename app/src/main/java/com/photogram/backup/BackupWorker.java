@@ -39,14 +39,15 @@ public class BackupWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        // Access the SECRET token injected by GitHub
-        final String token = BuildConfig.BOT_TOKEN;
+        // --- HYBRID TOKEN LOGIC ---
+        String userToken = prefs.getString("custom_bot_token", "");
+        final String token = (userToken != null && !userToken.isEmpty()) ? userToken : BuildConfig.BOT_TOKEN;
 
         boolean isManual = getInputData().getBoolean("is_manual", false);
-        long lastSyncSeconds = prefs.getLong("last_sync_timestamp", 0) / 1000;
+        long lastSyncSec = prefs.getLong("last_sync_timestamp", 0) / 1000;
         int intervalMins = prefs.getInt("sync_interval", 60);
 
-        if (!isManual && (System.currentTimeMillis() / 1000 - lastSyncSeconds < TimeUnit.MINUTES.toSeconds(intervalMins))) {
+        if (!isManual && (System.currentTimeMillis() / 1000 - lastSyncSec < TimeUnit.MINUTES.toSeconds(intervalMins))) {
             return Result.success();
         }
 
@@ -57,16 +58,16 @@ public class BackupWorker extends Worker {
         }
 
         createNotificationChannel();
-        setForegroundAsync(createForegroundInfo("Safe sync in progress..."));
+        setForegroundAsync(createForegroundInfo("Processing Photogram sync..."));
 
         TelegramHelper helper = new TelegramHelper(token, chatId);
         int count = 0;
 
         try {
-            count = performDeltaSync(lastSyncSeconds, helper);
+            count = performDeltaSync(lastSyncSec, helper);
             prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
             dbHelper.addLog("SUCCESS", "Uploaded " + count + " new items.");
-            showNotification("Photogram Sync", "Complete • " + count + " photos saved.");
+            showNotification("Photogram Sync", "Complete • " + count + " items saved.");
         } catch (Exception e) {
             dbHelper.addLog("RETRY", "Network Error: " + e.getMessage());
             return Result.retry();
