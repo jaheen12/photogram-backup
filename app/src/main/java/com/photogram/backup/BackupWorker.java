@@ -21,10 +21,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class BackupWorker extends Worker {
-
     private static final String CHANNEL_ID = "sync_channel";
     private static final int NOTIF_ID = 1;
-
     private final SharedPreferences prefs;
     private final DatabaseHelper dbHelper;
     private final NotificationManager notificationManager;
@@ -41,50 +39,29 @@ public class BackupWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        // 1. Token Setup (Hybrid Model)
         String userToken = prefs.getString("custom_bot_token", "");
         final String token = (userToken != null && !userToken.isEmpty()) ? userToken : BuildConfig.BOT_TOKEN;
         String chatId = prefs.getString("chat_id", "");
+        if (token.isEmpty() || chatId.isEmpty()) return Result.failure();
 
-        // 2. Initial Checks
-        boolean isManual = getInputData().getBoolean("is_manual", false);
-        long lastSyncSeconds = prefs.getLong("last_sync_timestamp", 0) / 1000;
-        int intervalMins = prefs.getInt("sync_interval", 60);
-
-        if (!isManual && (System.currentTimeMillis() / 1000 - lastSyncSeconds < TimeUnit.MINUTES.toSeconds(intervalMins))) {
-            return Result.success();
-        }
-
-        if (token == null || token.isEmpty() || chatId.isEmpty()) {
-            dbHelper.addLog("ERROR", "Backup failed: Missing Bot Token or Chat ID.");
-            return Result.failure();
-        }
-
-        // 3. Start Sync with Foreground Status
         createNotificationChannel();
-        setForegroundAsync(createForegroundInfo("Restoring cloud memory..."));
-        
+        setForegroundAsync(createForegroundInfo("Preparing Photogram sync..."));
         TelegramHelper helper = new TelegramHelper(token, chatId);
-        int uploadedCount = 0;
 
         try {
-            // A. Fetch Registry from Telegram Pinned Message
             Map<String, String> registry = helper.getTopicRegistry();
-
-            // B. Restore History if the local database is empty (e.g., after reinstall)
+            
+            // Restore history if needed
             if (dbHelper.getTotalBackupCount() == 0 && registry.containsKey("CLOUD_HISTORY_ID")) {
-                dbHelper.addLog("INFO", "Restoring photo history from Telegram...");
                 String historyJson = helper.downloadHistoryFile(registry.get("CLOUD_HISTORY_ID"));
                 dbHelper.importHistoryFromJson(historyJson);
-                dbHelper.addLog("SUCCESS", "Memory restored! Skipping old photos.");
             }
 
-            // C. Perform Delta Sync (Upload only new photos)
-            uploadedCount = performDeltaSync(lastSyncSeconds, helper, registry);
+            // Perform Delta Sync with REAL-TIME UPDATES
+            int uploadedCount = performDeltaSync(prefs.getLong("last_sync_timestamp", 0) / 1000, helper, registry);
 
-            // D. Backup updated history back to Telegram Cloud
+            // Backup History to Cloud
             if (uploadedCount > 0 || !registry.containsKey("CLOUD_HISTORY_ID")) {
-                dbHelper.addLog("INFO", "Saving memory to Telegram...");
                 String newFileId = helper.uploadHistoryFile(dbHelper.exportHistoryToJson());
                 if (newFileId != null) {
                     registry.put("CLOUD_HISTORY_ID", newFileId);
@@ -92,17 +69,12 @@ public class BackupWorker extends Worker {
                 }
             }
 
-            // 4. Wrap up
             prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
-            dbHelper.addLog("SUCCESS", "Backup complete. Saved " + uploadedCount + " items.");
-            showNotification("Photogram Sync", "Backup Complete! " + uploadedCount + " items.");
-
+            return Result.success();
         } catch (Exception e) {
-            dbHelper.addLog("RETRY", "Sync failed: " + e.getMessage());
-            return Result.retry(); 
+            dbHelper.addLog("ERROR", "Sync Interrupted: " + e.getMessage());
+            return Result.retry();
         }
-
-        return Result.success();
     }
 
     private int performDeltaSync(long since, TelegramHelper helper, Map<String, String> registry) throws Exception {
@@ -110,82 +82,60 @@ public class BackupWorker extends Worker {
         ContentResolver resolver = context.getContentResolver();
         Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
         
-        String[] projection = {MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_MODIFIED};
-        String selection = MediaStore.Images.Media.DATE_MODIFIED + " > ?";
-        String[] selectionArgs = {String.valueOf(since)};
-        String sortOrder = MediaStore.Images.Media.DATE_MODIFIED + " ASC";
-
-        try (Cursor cursor = resolver.query(uri, projection, selection, selectionArgs, sortOrder)) {
+        try (Cursor cursor = resolver.query(uri, new String[]{MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_MODIFIED}, MediaStore.Images.Media.DATE_MODIFIED + " > ?", new String[]{String.valueOf(since)}, MediaStore.Images.Media.DATE_MODIFIED + " ASC")) {
             if (cursor != null && cursor.moveToFirst()) {
-                int dataIdx = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
-                int dateIdx = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED);
+                int totalItems = cursor.getCount();
+                int currentIndex = 0;
 
                 do {
                     if (isStopped()) break;
-
-                    String filePath = cursor.getString(dataIdx);
-                    long modifiedTime = cursor.getLong(dateIdx);
-                    File file = new File(filePath);
+                    String path = cursor.getString(0);
+                    long mod = cursor.getLong(1);
+                    File file = new File(path);
                     File parent = file.getParentFile();
 
                     if (parent != null && prefs.getBoolean(parent.getAbsolutePath(), false)) {
-                        if (!dbHelper.isFileUploaded(filePath, modifiedTime)) {
-                            String threadId = getTopicFromRegistry(parent, helper, registry);
+                        if (!dbHelper.isFileUploaded(path, mod)) {
                             
-                            if (!threadId.isEmpty() && helper.uploadPhoto(file, threadId)) {
-                                dbHelper.markAsUploaded(filePath, modifiedTime);
+                            // --- BROADCAST PROGRESS TO UI ---
+                            Data progress = new Data.Builder()
+                                .putString("current_file", file.getName())
+                                .putInt("progress_percent", (int) ((currentIndex / (float) totalItems) * 100))
+                                .build();
+                            setProgressAsync(progress);
+
+                            String tid = getTopic(parent, helper, registry);
+                            if (!tid.isEmpty() && helper.uploadPhoto(file, tid)) {
+                                dbHelper.markAsUploaded(path, mod);
                                 count++;
-                                Thread.sleep(3000); // Telegram Flood Control
-                                if (count % 2 == 0) showNotification("Syncing...", "Saved " + count + " items");
+                                Thread.sleep(3000); 
                             }
                         }
                     }
+                    currentIndex++;
                 } while (cursor.moveToNext());
             }
         }
         return count;
     }
 
-    private String getTopicFromRegistry(File dir, TelegramHelper helper, Map<String, String> registry) throws Exception {
+    private String getTopic(File dir, TelegramHelper helper, Map<String, String> registry) throws Exception {
         String name = dir.getName();
-        // Check cloud registry first
-        if (registry.containsKey(name)) {
-            return registry.get(name);
-        }
-        
-        // Create new topic if not in cloud
-        dbHelper.addLog("TOPIC", "Creating new topic for: " + name);
+        if (registry.containsKey(name)) return registry.get(name);
         String id = helper.createTopic(name);
         registry.put(name, id);
         helper.saveTopicRegistry(registry);
         return id;
     }
 
-    private void showNotification(String title, String msg) {
-        Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle(title)
-                .setContentText(msg)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setSilent(true)
-                .build();
-        notificationManager.notify(NOTIF_ID, notification);
-    }
-
     private ForegroundInfo createForegroundInfo(String text) {
-        Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Photogram Sync")
-                .setContentText(text)
-                .setOngoing(true)
-                .build();
-        return new ForegroundInfo(NOTIF_ID, notification);
+        Notification n = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID).setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("Photogram").setContentText(text).setOngoing(true).build();
+        return new ForegroundInfo(NOTIF_ID, n);
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Sync Status", NotificationManager.IMPORTANCE_LOW);
-            notificationManager.createNotificationChannel(channel);
+            notificationManager.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "Sync", NotificationManager.IMPORTANCE_LOW));
         }
     }
 }

@@ -5,16 +5,17 @@
     android:layout_height="match_parent"
     android:background="@color/surface_bg">
 
-    <!-- Compact Header Section -->
+    <!-- Compact Modern Header -->
     <LinearLayout
         android:id="@+id/header"
         android:layout_width="match_parent"
-        android:layout_height="170dp"
+        android:layout_height="wrap_content"
         android:background="@drawable/dashboard_modern_bg"
         android:orientation="vertical"
         android:paddingLeft="24dp"
         android:paddingRight="24dp"
-        android:paddingTop="20dp">
+        android:paddingTop="20dp"
+        android:paddingBottom="32dp">
 
         <TextView
             android:id="@+id/tvTotalStats"
@@ -25,58 +26,82 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
+        <!-- Status Label -->
         <TextView
-            android:id="@+id/tvLastSync"
+            android:id="@+id/tvSyncStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Last Sync: Never"
+            android:text="Cloud Sync Active"
             android:textColor="#B0FFFFFF"
-            android:textSize="12sp" />
+            android:textSize="12sp"
+            android:layout_marginTop="4dp" />
+
+        <!-- Real-time Progress Bar -->
+        <ProgressBar
+            android:id="@+id/pbSync"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="6dp"
+            android:layout_marginTop="12dp"
+            android:progressDrawable="@drawable/progress_bar_custom"
+            android:visibility="gone"
+            android:max="100" />
+            
+        <!-- Real-time Filename -->
+        <TextView
+            android:id="@+id/tvCurrentFile"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Syncing..."
+            android:textColor="#CCFFFFFF"
+            android:textSize="10sp"
+            android:layout_marginTop="4dp"
+            android:visibility="gone"
+            android:singleLine="true"
+            android:ellipsize="middle" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="20dp"
             android:gravity="center_vertical">
 
             <Button
                 android:id="@+id/btnStartBackup"
                 android:layout_width="0dp"
-                android:layout_height="42dp"
-                android:layout_weight="1"
+                android:layout_height="44dp"
+                android:layout_weight="1.2"
                 android:text="Sync Now"
                 android:textAllCaps="false"
                 android:backgroundTint="@color/surface_card"
                 android:textColor="@color/brand_deep"
-                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <View android:layout_width="10dp" android:layout_height="0dp"/>
 
             <ImageButton
                 android:id="@+id/btnLogs"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:src="@drawable/ic_history_modern"
                 android:background="@drawable/button_white_bg"
-                android:padding="10dp"
+                android:padding="12dp"
                 android:scaleType="fitCenter" />
 
             <View android:layout_width="10dp" android:layout_height="0dp"/>
 
             <ImageButton
                 android:id="@+id/btnSettings"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:src="@drawable/ic_settings_modern"
                 android:background="@drawable/button_white_bg"
-                android:padding="10dp"
+                android:padding="12dp"
                 android:scaleType="fitCenter" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Floating Search Bar (Positioned precisely over the slim header) -->
     <EditText
         android:id="@+id/etSearch"
         android:layout_width="match_parent"
@@ -94,12 +119,11 @@
         android:singleLine="true"
         android:textSize="14sp" />
 
-    <!-- List View starts closer to the top now -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="180dp"> 
+        android:layout_marginTop="195dp"> 
 
         <ListView
             android:id="@+id/folderListView"
@@ -113,5 +137,4 @@
             android:paddingBottom="20dp"
             android:clipToPadding="false" />
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
-
 </RelativeLayout>

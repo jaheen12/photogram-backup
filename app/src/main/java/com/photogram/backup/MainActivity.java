@@ -6,7 +6,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.*;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.*;
@@ -25,7 +27,8 @@ public class MainActivity extends Activity {
     BaseAdapter adapter;
     SharedPreferences prefs;
     DatabaseHelper dbHelper;
-    TextView tvTotalStats, tvLastSync;
+    TextView tvTotalStats, tvSyncStatus, tvCurrentFile;
+    ProgressBar pbSync;
     private static final int PERM_CODE = 101;
 
     @Override
@@ -39,10 +42,11 @@ public class MainActivity extends Activity {
         listView = findViewById(R.id.folderListView);
         swipeRefresh = findViewById(R.id.swipeRefresh);
         tvTotalStats = findViewById(R.id.tvTotalStats);
-        tvLastSync = findViewById(R.id.tvLastSync);
+        tvSyncStatus = findViewById(R.id.tvSyncStatus);
+        tvCurrentFile = findViewById(R.id.tvCurrentFile);
+        pbSync = findViewById(R.id.pbSync);
         EditText etSearch = findViewById(R.id.etSearch);
 
-        swipeRefresh.setColorSchemeResources(android.R.color.holo_blue_dark);
         swipeRefresh.setOnRefreshListener(this::startAppLogic);
 
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
@@ -60,12 +64,44 @@ public class MainActivity extends Activity {
         allFolders.addAll(dbHelper.getSavedFolders());
         filterFolders("");
         handlePermissions();
+        
+        // --- NEW: START MONITORING BACKGROUND SYNC ---
+        observeSyncProgress();
+    }
+
+    private void observeSyncProgress() {
+        WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("PhotogramSync")
+            .observe(this, workInfos -> {
+                if (workInfos == null || workInfos.isEmpty()) return;
+                WorkInfo info = workInfos.get(0);
+                
+                if (info.getState() == WorkInfo.State.RUNNING) {
+                    pbSync.setVisibility(View.VISIBLE);
+                    tvCurrentFile.setVisibility(View.VISIBLE);
+                    
+                    Data progress = info.getProgress();
+                    String fileName = progress.getString("current_file");
+                    int percent = progress.getInt("progress_percent", 0);
+                    
+                    if (fileName != null) {
+                        tvCurrentFile.setText("Syncing: " + fileName);
+                        tvSyncStatus.setText("Backup in progress...");
+                        pbSync.setIndeterminate(percent == 0);
+                        if (percent > 0) pbSync.setProgress(percent);
+                    }
+                } else {
+                    pbSync.setVisibility(View.GONE);
+                    tvCurrentFile.setVisibility(View.GONE);
+                    refreshDashboard();
+                }
+            });
     }
 
     private void refreshDashboard() {
-        if (tvTotalStats != null) tvTotalStats.setText(dbHelper.getTotalBackupCount() + " Items Saved");
+        tvTotalStats.setText(dbHelper.getTotalBackupCount() + " Items Saved");
         long last = prefs.getLong("last_sync_timestamp", 0);
-        if (tvLastSync != null) tvLastSync.setText(last > 0 ? "Last Sync: " + new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(last)) : "Last Sync: Never");
+        if (last > 0) tvSyncStatus.setText("Last Sync: " + new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(last)));
+        else tvSyncStatus.setText("Cloud Sync Ready");
     }
 
     private void filterFolders(String query) {
@@ -73,13 +109,12 @@ public class MainActivity extends Activity {
         for (File f : allFolders) {
             if (f.getName().toLowerCase().contains(query.toLowerCase())) filteredFolders.add(f);
         }
-        if (adapter != null) adapter.notifyDataSetChanged();
+        adapter.notifyDataSetChanged();
     }
 
     private void handlePermissions() {
         String p = (Build.VERSION.SDK_INT >= 33) ? Manifest.permission.READ_MEDIA_IMAGES : Manifest.permission.READ_EXTERNAL_STORAGE;
-        if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) 
-            requestPermissions(new String[]{p, Manifest.permission.POST_NOTIFICATIONS}, PERM_CODE);
+        if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{p, Manifest.permission.POST_NOTIFICATIONS}, PERM_CODE);
         else startAppLogic();
     }
 
@@ -103,16 +138,10 @@ public class MainActivity extends Activity {
     private void recursiveScan(File dir, ArrayList<File> list) {
         File[] files = dir.listFiles();
         if (files == null) return;
-        boolean hasImg = false;
         for (File f : files) {
-            if (f.isDirectory()) {
-                if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f, list);
-            } else if (!hasImg) {
-                String n = f.getName().toLowerCase();
-                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) hasImg = true;
-            }
+            if (f.isDirectory() && !f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f, list);
+            else if (f.getName().toLowerCase().endsWith(".jpg")) { list.add(dir); break; }
         }
-        if (hasImg) list.add(dir);
     }
 
     private void scheduleBackup(boolean immediate) {
@@ -120,7 +149,7 @@ public class MainActivity extends Activity {
         if (immediate) {
             WorkManager.getInstance(this).enqueue(new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(c).setInputData(new Data.Builder().putBoolean("is_manual", true).build()).build());
         }
-        PeriodicWorkRequest p = new PeriodicWorkRequest.Builder(BackupWorker.class, prefs.getInt("sync_interval", 60), java.util.concurrent.TimeUnit.MINUTES).setConstraints(c).build();
+        PeriodicWorkRequest p = new PeriodicWorkRequest.Builder(BackupWorker.class, prefs.getInt("sync_interval", 60), TimeUnit.MINUTES).setConstraints(c).build();
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, p);
     }
 
