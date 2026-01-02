@@ -11,8 +11,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          # Cache disabled to avoid GitHub Infrastructure errors
-          cache: '' 
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -20,8 +18,8 @@ jobs:
           gradle-version: 8.2
 
       - name: Build APK
-        # Added --stacktrace to see the real errors
-        run: gradle assembleDebug --stacktrace --info
+        # Clean build command without debug flags
+        run: gradle assembleDebug
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
