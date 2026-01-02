@@ -2,31 +2,31 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginBottom="12dp"
+    android:background="@drawable/search_bar_bg"
     android:orientation="horizontal"
-    android:padding="15dp"
-    android:layout_marginBottom="8dp"
-    android:background="@android:drawable/dialog_holo_light_frame"
+    android:padding="20dp"
     android:gravity="center_vertical">
 
-    <ImageView
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:src="@android:drawable/ic_menu_save"
-        android:tint="@color/tg_blue" />
+    <View
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="#1000A3FF"
+        android:padding="10dp" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:layout_marginLeft="15dp">
+        android:layout_marginLeft="16dp">
 
         <TextView
             android:id="@+id/folderName"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="17sp"
-            android:textColor="@color/text_black"
+            android:textColor="@color/text_title"
             android:textStyle="bold" />
 
         <TextView
@@ -34,14 +34,15 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="12sp"
-            android:textColor="@color/text_grey"
-            android:ellipsize="end"
+            android:textColor="@color/text_body"
+            android:ellipsize="middle"
             android:singleLine="true" />
     </LinearLayout>
 
     <Switch
         android:id="@+id/backupSwitch"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:thumbTint="@color/brand_vibrant" />
 
 </LinearLayout>
