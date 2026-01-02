@@ -1,16 +1,41 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    
-    <!-- Background Circle -->
-    <path
-        android:fillColor="#0088CC"
-        android:pathData="M54,54m-50,0a50,50 0,1 1,100 0a50,50 0,1 1,-100 0" />
-        
-    <!-- Camera/Plane Hybrid Icon -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M78,42.5L34,26c-2.2,-0.8 -4.2,1.2 -3.4,3.4l16.5,44c0.6,1.6 2.8,1.8 3.7,0.4l6.2,-10.3l17.4,17.4c1.2,1.2 3.1,1.2 4.2,0l3.5,-3.5c1.2,-1.2 1.2,-3.1 0,-4.2L60.7,56l10.3,-6.2C72.4,48.9 72.2,46.7 70.6,46.1L78,42.5z" />
-</vector>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <!-- Background with gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A90E2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#357ABD;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cloudGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F0F4F8;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="54" cy="54" r="50" fill="url(#bgGradient)"/>
+  
+  <!-- Cloud Shape -->
+  <path d="M 68 48 C 68 43.5 64.5 40 60 40 C 59.5 40 59 40.1 58.5 40.2 C 57 36.5 53.5 34 49.5 34 C 44.3 34 40 38.3 40 43.5 C 40 44 40.1 44.5 40.2 45 C 36.8 45.5 34 48.5 34 52 C 34 55.9 37.1 59 41 59 L 65 59 C 68.9 59 72 55.9 72 52 C 72 49.8 70.5 48 68.5 47.2 Z" 
+        fill="url(#cloudGradient)" 
+        opacity="0.95"/>
+  
+  <!-- Photo/Image icon inside cloud -->
+  <rect x="42" y="50" width="24" height="18" rx="2" fill="#4A90E2" opacity="0.9"/>
+  <rect x="43.5" y="51.5" width="21" height="15" rx="1" fill="#FFFFFF"/>
+  
+  <!-- Mountain shape in photo -->
+  <path d="M 43.5 63 L 49 56 L 54 61 L 60 54 L 64.5 60 L 64.5 66.5 L 43.5 66.5 Z" 
+        fill="#4A90E2" 
+        opacity="0.6"/>
+  
+  <!-- Sun/circle in photo -->
+  <circle cx="59" cy="55.5" r="2" fill="#FDB813" opacity="0.8"/>
+  
+  <!-- Upload arrow -->
+  <path d="M 54 42 L 54 50 M 54 42 L 51 45 M 54 42 L 57 45" 
+        stroke="#FFFFFF" 
+        stroke-width="2.5" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" 
+        fill="none"/>
+</svg>
