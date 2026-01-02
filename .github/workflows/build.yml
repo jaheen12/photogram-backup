@@ -5,20 +5,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - name: set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          # Cache disabled to avoid GitHub Infrastructure errors
+          cache: '' 
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.2
+
       - name: Build APK
-        run: gradle assembleDebug
+        # Added --stacktrace to see the real errors
+        run: gradle assembleDebug --stacktrace --info
         env:
-          # This connects your GitHub Repo Secret to the build
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

@@ -13,8 +13,9 @@ android {
         versionCode 1
         versionName "1.0"
 
-        // Takes the secret from GitHub and injects it into Java
-        buildConfigField "String", "BOT_TOKEN", "\"${System.getenv("TELEGRAM_BOT_TOKEN")}\""
+        // SAFE INJECTION: If the secret is missing, it uses an empty string instead of crashing
+        def token = System.getenv("TELEGRAM_BOT_TOKEN") ?: ""
+        buildConfigField "String", "BOT_TOKEN", "\"${token}\""
     }
 
     buildFeatures {
