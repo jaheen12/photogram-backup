@@ -1,57 +1,25 @@
-plugins {
-    id 'com.android.application'
-}
-
+plugins { id 'com.android.application' }
 android {
     namespace 'com.photogram.backup'
-    compileSdk 34
-
+    compileSdk 33
     defaultConfig {
         applicationId "com.photogram.backup"
         minSdk 21
-        targetSdk 34
+        targetSdk 33
         versionCode 1
         versionName "1.0"
-
-        // Injects the Secret Token from GitHub Actions
         def token = System.getenv("TELEGRAM_BOT_TOKEN") ?: ""
         buildConfigField "String", "BOT_TOKEN", "\"${token}\""
-        
         vectorDrawables.useSupportLibrary = true
     }
-
-    buildFeatures {
-        buildConfig true
-    }
-
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
+    buildFeatures { buildConfig true }
 }
-
-// Prevents the "Duplicate Class" error for Kotlin
-configurations.all {
-    resolutionStrategy {
-        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
-    }
-}
-
 dependencies {
-    // UI & Core
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.12.0'
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-    
-    // Real-time UI Lifecycle (CRITICAL FOR PROGRESS BARS)
-    implementation 'androidx.lifecycle:lifecycle-livedata:2.6.1'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel:2.6.1'
-
-    // Automation & Background Sync
     implementation 'androidx.work:work-runtime:2.8.1'
-
-    // Internet & Data
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'androidx.lifecycle:lifecycle-livedata:2.6.1'
     implementation 'com.squareup.okhttp3:okhttp:4.11.0'
     implementation 'org.json:json:20230227'
 }
