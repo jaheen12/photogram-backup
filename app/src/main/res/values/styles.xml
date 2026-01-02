@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Modern AppCompat Theme -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- Main Brand Colors -->
+        <item name="colorPrimary">@color/brand_vibrant</item>
+        <item name="colorPrimaryDark">@color/brand_dark</item>
+        <item name="colorAccent">@color/brand_vibrant</item>
+        
+        <!-- Background Color -->
+        <item name="android:windowBackground">@color/surface_bg</item>
+    </style>
+</resources>

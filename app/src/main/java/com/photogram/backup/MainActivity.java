@@ -13,18 +13,19 @@ import android.text.TextWatcher;
 import android.view.*;
 import android.widget.*;
 
-// --- CRITICAL FIXES ---
-import androidx.appcompat.app.AppCompatActivity; // Use this instead of Activity
+// AndroidX Imports
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.work.*;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import androidx.lifecycle.Observer;
+
+// Standard Java Imports
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.TimeUnit; // FIXED: Missing import
-// ----------------------
+import java.util.concurrent.TimeUnit;
 
-public class MainActivity extends AppCompatActivity { // FIXED: Changed to AppCompatActivity
+public class MainActivity extends AppCompatActivity {
     ListView listView;
     SwipeRefreshLayout swipeRefresh;
     ArrayList<File> allFolders = new ArrayList<>();
@@ -32,8 +33,11 @@ public class MainActivity extends AppCompatActivity { // FIXED: Changed to AppCo
     BaseAdapter adapter;
     SharedPreferences prefs;
     DatabaseHelper dbHelper;
+    
+    // Dashboard Views
     TextView tvTotalStats, tvSyncStatus, tvCurrentFile;
     ProgressBar pbSync;
+    
     private static final int PERM_CODE = 101;
 
     @Override
@@ -41,9 +45,11 @@ public class MainActivity extends AppCompatActivity { // FIXED: Changed to AppCo
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
         
+        // Initialize Core components
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
         dbHelper = new DatabaseHelper(this);
         
+        // Initialize Dashboard Components
         listView = findViewById(R.id.folderListView);
         swipeRefresh = findViewById(R.id.swipeRefresh);
         tvTotalStats = findViewById(R.id.tvTotalStats);
@@ -52,12 +58,17 @@ public class MainActivity extends AppCompatActivity { // FIXED: Changed to AppCo
         pbSync = findViewById(R.id.pbSync);
         EditText etSearch = findViewById(R.id.etSearch);
 
-        swipeRefresh.setOnRefreshListener(this::startAppLogic);
+        // UI Listeners
+        if (swipeRefresh != null) {
+            swipeRefresh.setColorSchemeResources(android.R.color.holo_blue_dark);
+            swipeRefresh.setOnRefreshListener(this::startAppLogic);
+        }
 
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         findViewById(R.id.btnStartBackup).setOnClickListener(v -> scheduleBackup(true));
         findViewById(R.id.btnLogs).setOnClickListener(v -> startActivity(new Intent(this, LogActivity.class)));
 
+        // Real-time Search Logic
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
                 public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -68,44 +79,52 @@ public class MainActivity extends AppCompatActivity { // FIXED: Changed to AppCo
 
         setupAdapter();
         refreshDashboard();
+        
+        // Load persistent folder list
         allFolders.addAll(dbHelper.getSavedFolders());
         filterFolders("");
-        handlePermissions();
         
-        // Start monitoring progress
+        // System checks
+        handlePermissions();
+        checkBatteryOptimization();
+        
+        // Start the Real-Time Observer
         observeSyncProgress();
     }
 
     private void observeSyncProgress() {
-        // FIXED: Added explicit List<WorkInfo> type to satisfy compiler
-        WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("PhotogramSync")
-            .observe(this, new Observer<List<WorkInfo>>() {
-                @Override
-                public void onChanged(List<WorkInfo> workInfos) {
-                    if (workInfos == null || workInfos.isEmpty()) return;
-                    WorkInfo info = workInfos.get(0);
-                    
-                    if (info.getState() == WorkInfo.State.RUNNING) {
-                        if (pbSync != null) pbSync.setVisibility(View.VISIBLE);
-                        if (tvCurrentFile != null) tvCurrentFile.setVisibility(View.VISIBLE);
+        try {
+            WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("PhotogramSync")
+                .observe(this, new Observer<List<WorkInfo>>() {
+                    @Override
+                    public void onChanged(List<WorkInfo> workInfos) {
+                        if (workInfos == null || workInfos.isEmpty()) return;
+                        WorkInfo info = workInfos.get(0);
                         
-                        Data progress = info.getProgress();
-                        String fileName = progress.getString("current_file");
-                        int percent = progress.getInt("progress_percent", 0);
-                        
-                        if (fileName != null && tvCurrentFile != null) {
-                            tvCurrentFile.setText("Syncing: " + fileName);
-                            tvSyncStatus.setText("Backup in progress...");
-                            pbSync.setIndeterminate(percent == 0);
-                            if (percent > 0) pbSync.setProgress(percent);
+                        if (info.getState() == WorkInfo.State.RUNNING) {
+                            if (pbSync != null) pbSync.setVisibility(View.VISIBLE);
+                            if (tvCurrentFile != null) tvCurrentFile.setVisibility(View.VISIBLE);
+                            
+                            Data progress = info.getProgress();
+                            String fileName = progress.getString("current_file");
+                            int percent = progress.getInt("progress_percent", 0);
+                            
+                            if (fileName != null && tvCurrentFile != null) {
+                                tvCurrentFile.setText("Syncing: " + fileName);
+                                tvSyncStatus.setText("Cloud Sync in progress...");
+                                if (percent > 0) pbSync.setProgress(percent);
+                                else pbSync.setIndeterminate(true);
+                            }
+                        } else {
+                            if (pbSync != null) pbSync.setVisibility(View.GONE);
+                            if (tvCurrentFile != null) tvCurrentFile.setVisibility(View.GONE);
+                            refreshDashboard();
                         }
-                    } else {
-                        if (pbSync != null) pbSync.setVisibility(View.GONE);
-                        if (tvCurrentFile != null) tvCurrentFile.setVisibility(View.GONE);
-                        refreshDashboard();
                     }
-                }
-            });
+                });
+        } catch (Exception e) {
+            dbHelper.addLog("ERROR", "Progress monitor failed: " + e.getMessage());
+        }
     }
 
     private void refreshDashboard() {
@@ -148,6 +167,7 @@ public class MainActivity extends AppCompatActivity { // FIXED: Changed to AppCo
                 refreshDashboard();
             });
         }).start();
+        scheduleBackup(false);
     }
 
     private void recursiveScan(File dir, ArrayList<File> list) {
@@ -156,7 +176,7 @@ public class MainActivity extends AppCompatActivity { // FIXED: Changed to AppCo
         for (File f : files) {
             if (f.isDirectory()) {
                 if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f, list);
-            } else if (f.getName().toLowerCase().endsWith(".jpg")) {
+            } else if (f.getName().toLowerCase().endsWith(".jpg") || f.getName().toLowerCase().endsWith(".png")) {
                 list.add(dir);
                 break;
             }
@@ -164,12 +184,32 @@ public class MainActivity extends AppCompatActivity { // FIXED: Changed to AppCo
     }
 
     private void scheduleBackup(boolean immediate) {
-        Constraints c = new Constraints.Builder().setRequiredNetworkType(prefs.getBoolean("only_wifi", false) ? NetworkType.UNMETERED : NetworkType.CONNECTED).build();
+        int interval = prefs.getInt("sync_interval", 60);
+        boolean onlyWifi = prefs.getBoolean("only_wifi", false);
+        NetworkType nt = onlyWifi ? NetworkType.UNMETERED : NetworkType.CONNECTED;
+        
+        Constraints c = new Constraints.Builder().setRequiredNetworkType(nt).build();
+
         if (immediate) {
-            WorkManager.getInstance(this).enqueue(new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(c).setInputData(new Data.Builder().putBoolean("is_manual", true).build()).build());
+            WorkManager.getInstance(this).enqueue(new OneTimeWorkRequest.Builder(BackupWorker.class)
+                    .setConstraints(c)
+                    .setInputData(new Data.Builder().putBoolean("is_manual", true).build())
+                    .build());
         }
-        PeriodicWorkRequest p = new PeriodicWorkRequest.Builder(BackupWorker.class, prefs.getInt("sync_interval", 60), TimeUnit.MINUTES).setConstraints(c).build();
+        
+        PeriodicWorkRequest p = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES).setConstraints(c).build();
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, p);
+    }
+
+    private void checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            }
+        }
     }
 
     void setupAdapter() {

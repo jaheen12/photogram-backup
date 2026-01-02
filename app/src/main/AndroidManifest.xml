@@ -21,7 +21,7 @@
         android:label="Photogram"
         android:icon="@drawable/app_icon"
         android:roundIcon="@drawable/app_icon"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"> <!-- THE UI FIX IS HERE -->
+        android:theme="@style/AppTheme" <!-- THE UI FIX IS HERE -->
 
         <!-- Main Screen -->
         <activity 
