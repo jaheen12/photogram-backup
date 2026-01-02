@@ -12,7 +12,9 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
-
+         
+        vectorDrawables.useSupportLibrary = true
+         
         // SAFE INJECTION: If the secret is missing, it uses an empty string instead of crashing
         def token = System.getenv("TELEGRAM_BOT_TOKEN") ?: ""
         buildConfigField "String", "BOT_TOKEN", "\"${token}\""

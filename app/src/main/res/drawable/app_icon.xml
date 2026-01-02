@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Background Circle -->
+    <path
+        android:fillColor="#0088CC"
+        android:pathData="M54,54m-50,0a50,50 0,1 1,100 0a50,50 0,1 1,-100 0" />
+        
+    <!-- Camera/Plane Hybrid Icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M78,42.5L34,26c-2.2,-0.8 -4.2,1.2 -3.4,3.4l16.5,44c0.6,1.6 2.8,1.8 3.7,0.4l6.2,-10.3l17.4,17.4c1.2,1.2 3.1,1.2 4.2,0l3.5,-3.5c1.2,-1.2 1.2,-3.1 0,-4.2L60.7,56l10.3,-6.2C72.4,48.9 72.2,46.7 70.6,46.1L78,42.5z" />
+</vector>
