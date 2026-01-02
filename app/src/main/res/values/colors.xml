@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand Colors -->
+    <color name="tg_blue">#0088CC</color>
+    <color name="tg_dark">#242F3D</color>
+    <color name="bg_grey">#F0F2F5</color>
+    
+    <!-- UI Surface Colors -->
+    <color name="card_white">#FFFFFF</color>
+    <color name="text_black">#222222</color>
+    <color name="text_grey">#707579</color>
+    <color name="pure_white">#FFFFFF</color>
+</resources>

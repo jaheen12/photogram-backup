@@ -7,14 +7,15 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.*;
-import android.widget.*;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.*;
+import android.widget.*;
 import androidx.work.*;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     ListView listView;
@@ -25,6 +26,7 @@ public class MainActivity extends Activity {
     SharedPreferences prefs;
     DatabaseHelper dbHelper;
     TextView tvTotalStats, tvLastSync;
+    private static final int PERM_CODE = 101;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -34,54 +36,36 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
         dbHelper = new DatabaseHelper(this);
         
-        // Find Views with Safety Checks
         listView = findViewById(R.id.folderListView);
         swipeRefresh = findViewById(R.id.swipeRefresh);
         tvTotalStats = findViewById(R.id.tvTotalStats);
         tvLastSync = findViewById(R.id.tvLastSync);
         EditText etSearch = findViewById(R.id.etSearch);
 
-        if (swipeRefresh != null) {
-            swipeRefresh.setColorSchemeColors(0xFF0088CC);
-            swipeRefresh.setOnRefreshListener(this::startAppLogic);
-        }
+        swipeRefresh.setColorSchemeResources(android.R.color.holo_blue_dark);
+        swipeRefresh.setOnRefreshListener(this::startAppLogic);
 
-        // Button Listeners
-        View btnSettings = findViewById(R.id.btnSettings);
-        if (btnSettings != null) btnSettings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        findViewById(R.id.btnStartBackup).setOnClickListener(v -> scheduleBackup(true));
+        findViewById(R.id.btnLogs).setOnClickListener(v -> startActivity(new Intent(this, LogActivity.class)));
 
-        View btnBackup = findViewById(R.id.btnStartBackup);
-        if (btnBackup != null) btnBackup.setOnClickListener(v -> scheduleBackup(true));
-
-        View btnLogs = findViewById(R.id.btnLogs);
-        if (btnLogs != null) btnLogs.setOnClickListener(v -> startActivity(new Intent(this, LogActivity.class)));
-
-        if (etSearch != null) {
-            etSearch.addTextChangedListener(new android.text.TextWatcher() {
-                public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-                public void onTextChanged(CharSequence s, int a, int b, int c) { filterFolders(s.toString()); }
-                public void afterTextChanged(android.text.Editable s) {}
-            });
-        }
+        etSearch.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            public void onTextChanged(CharSequence s, int a, int b, int c) { filterFolders(s.toString()); }
+            public void afterTextChanged(Editable s) {}
+        });
 
         setupAdapter();
+        refreshDashboard();
         allFolders.addAll(dbHelper.getSavedFolders());
         filterFolders("");
         handlePermissions();
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        refreshDashboard();
-    }
-
     private void refreshDashboard() {
-        if (tvTotalStats != null) tvTotalStats.setText(dbHelper.getTotalBackupCount() + " Photos Backed Up");
-        if (tvLastSync != null) {
-            long last = prefs.getLong("last_sync_timestamp", 0);
-            tvLastSync.setText(last > 0 ? "Last Sync: " + new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(last)) : "Last Sync: Never");
-        }
+        if (tvTotalStats != null) tvTotalStats.setText(dbHelper.getTotalBackupCount() + " Items Saved");
+        long last = prefs.getLong("last_sync_timestamp", 0);
+        if (tvLastSync != null) tvLastSync.setText(last > 0 ? "Last Sync: " + new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(last)) : "Last Sync: Never");
     }
 
     private void filterFolders(String query) {
@@ -94,7 +78,8 @@ public class MainActivity extends Activity {
 
     private void handlePermissions() {
         String p = (Build.VERSION.SDK_INT >= 33) ? Manifest.permission.READ_MEDIA_IMAGES : Manifest.permission.READ_EXTERNAL_STORAGE;
-        if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{p, Manifest.permission.POST_NOTIFICATIONS}, 101);
+        if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) 
+            requestPermissions(new String[]{p, Manifest.permission.POST_NOTIFICATIONS}, PERM_CODE);
         else startAppLogic();
     }
 
@@ -102,17 +87,14 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int r, String[] p, int[] g) { startAppLogic(); }
 
     private void startAppLogic() {
-        if (swipeRefresh != null) swipeRefresh.setRefreshing(true);
+        swipeRefresh.setRefreshing(true);
         new Thread(() -> {
             ArrayList<File> fresh = new ArrayList<>();
             recursiveScan(Environment.getExternalStorageDirectory(), fresh);
             dbHelper.saveFolders(fresh);
             runOnUiThread(() -> {
-                allFolders.clear();
-                allFolders.addAll(fresh);
-                filterFolders("");
-                if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
-                refreshDashboard();
+                allFolders.clear(); allFolders.addAll(fresh);
+                filterFolders(""); swipeRefresh.setRefreshing(false); refreshDashboard();
             });
         }).start();
         scheduleBackup(false);
@@ -125,9 +107,9 @@ public class MainActivity extends Activity {
         for (File f : files) {
             if (f.isDirectory()) {
                 if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f, list);
-            } else {
+            } else if (!hasImg) {
                 String n = f.getName().toLowerCase();
-                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp")) hasImg = true;
+                if (n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".heic")) hasImg = true;
             }
         }
         if (hasImg) list.add(dir);
@@ -137,9 +119,8 @@ public class MainActivity extends Activity {
         Constraints c = new Constraints.Builder().setRequiredNetworkType(prefs.getBoolean("only_wifi", false) ? NetworkType.UNMETERED : NetworkType.CONNECTED).build();
         if (immediate) {
             WorkManager.getInstance(this).enqueue(new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(c).setInputData(new Data.Builder().putBoolean("is_manual", true).build()).build());
-            Toast.makeText(this, "Syncing...", Toast.LENGTH_SHORT).show();
         }
-        PeriodicWorkRequest p = new PeriodicWorkRequest.Builder(BackupWorker.class, prefs.getInt("sync_interval", 60), TimeUnit.MINUTES).setConstraints(c).build();
+        PeriodicWorkRequest p = new PeriodicWorkRequest.Builder(BackupWorker.class, prefs.getInt("sync_interval", 60), java.util.concurrent.TimeUnit.MINUTES).setConstraints(c).build();
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, p);
     }
 
@@ -149,7 +130,7 @@ public class MainActivity extends Activity {
             public Object getItem(int i) { return filteredFolders.get(i); }
             public long getItemId(int i) { return i; }
             public View getView(int i, View v, ViewGroup p) {
-                if (v == null) v = LayoutInflater.from(MainActivity.this).inflate(R.layout.folder_item, null);
+                if (v == null) v = getLayoutInflater().inflate(R.layout.folder_item, null);
                 File f = filteredFolders.get(i);
                 ((TextView)v.findViewById(R.id.folderName)).setText(f.getName());
                 ((TextView)v.findViewById(R.id.folderPath)).setText(f.getAbsolutePath());
