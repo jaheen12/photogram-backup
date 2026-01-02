@@ -1,19 +1,39 @@
 plugins { id 'com.android.application' }
+
 android {
     namespace 'com.photogram.backup'
-    compileSdk 33
+    compileSdk 34 // FIXED: Bumped to 34 to satisfy AndroidX dependencies
+
     defaultConfig {
         applicationId "com.photogram.backup"
         minSdk 21
-        targetSdk 33
+        targetSdk 33 // Keeps stable behavior
         versionCode 1
         versionName "1.0"
+
         def token = System.getenv("TELEGRAM_BOT_TOKEN") ?: ""
         buildConfigField "String", "BOT_TOKEN", "\"${token}\""
         vectorDrawables.useSupportLibrary = true
     }
-    buildFeatures { buildConfig true }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
 }
+
+// Ensure Kotlin versions are unified
+configurations.all {
+    resolutionStrategy {
+        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+    }
+}
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.12.0'
