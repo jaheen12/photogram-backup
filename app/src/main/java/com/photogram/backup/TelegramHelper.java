@@ -6,6 +6,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Iterator; // Added for the fix
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -25,7 +26,7 @@ public class TelegramHelper {
                 .build();
     }
 
-    // NEW: Search for the Topic Registry in Pinned Messages
+    // FIXED: Using keys() Iterator instead of keySet()
     public Map<String, String> getTopicRegistry() throws Exception {
         Map<String, String> registry = new HashMap<>();
         Request request = new Request.Builder().url(API_URL + "getChat?chat_id=" + chatId).build();
@@ -37,24 +38,25 @@ public class TelegramHelper {
                 if (text.startsWith("PHOTOGRAM_REGISTRY:")) {
                     String cleanJson = text.replace("PHOTOGRAM_REGISTRY:", "");
                     JSONObject map = new JSONObject(cleanJson);
-                    for (String key : map.keySet()) {
+                    
+                    // --- THE FIX STARTS HERE ---
+                    Iterator<String> keys = map.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
                         registry.put(key, map.getString(key));
                     }
+                    // --- THE FIX ENDS HERE ---
                 }
             }
+        } catch (Exception e) {
+            // Return empty if no registry found
         }
         return registry;
     }
 
-    // NEW: Update/Create the Registry Message
     public void saveTopicRegistry(Map<String, String> registry) throws Exception {
         JSONObject jsonMap = new JSONObject(registry);
         String registryText = "PHOTOGRAM_REGISTRY:" + jsonMap.toString();
-        
-        // Check if we already have a pinned message to edit
-        // For simplicity, we just send a new one and tell the user to pin it, 
-        // OR we can try to find the existing one. 
-        // Better: Always send and pin to ensure it's at the top.
         
         FormBody body = new FormBody.Builder()
                 .add("chat_id", chatId)
@@ -66,8 +68,11 @@ public class TelegramHelper {
             JSONObject res = new JSONObject(response.body().string());
             if (res.getBoolean("ok")) {
                 int msgId = res.getJSONObject("result").getInt("message_id");
-                // Pin it
-                client.newCall(new Request.Builder().url(API_URL + "pinChatMessage?chat_id=" + chatId + "&message_id=" + msgId).build()).execute();
+                // Attempt to pin the registry message automatically
+                Request pinReq = new Request.Builder()
+                        .url(API_URL + "pinChatMessage?chat_id=" + chatId + "&message_id=" + msgId)
+                        .build();
+                client.newCall(pinReq).execute();
             }
         }
     }
@@ -80,7 +85,11 @@ public class TelegramHelper {
         Request request = new Request.Builder().url(API_URL + "createForumTopic").post(body).build();
         try (Response response = client.newCall(request).execute()) {
             JSONObject json = new JSONObject(response.body().string());
-            return json.getJSONObject("result").getString("message_thread_id");
+            if (json.getBoolean("ok")) {
+                return json.getJSONObject("result").getString("message_thread_id");
+            } else {
+                throw new Exception(json.getString("description"));
+            }
         }
     }
 
@@ -89,7 +98,8 @@ public class TelegramHelper {
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("chat_id", chatId)
                 .addFormDataPart("message_thread_id", threadId)
-                .addFormDataPart("photo", photo.getName(), RequestBody.create(photo, MediaType.parse("image/jpeg")))
+                .addFormDataPart("photo", photo.getName(), 
+                        RequestBody.create(photo, MediaType.parse("image/jpeg")))
                 .build();
         Request request = new Request.Builder().url(API_URL + "sendPhoto").post(body).build();
         try (Response response = client.newCall(request).execute()) {
