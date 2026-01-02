@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Cloud (Vibrant Blue) -->
+    <path
+        android:fillColor="#00D4FF"
+        android:pathData="M70,46C70,41.5 66.5,38 62,38C61.3,38 60.6,38.1 60,38.3C58.2,34 54,31 49,31C42.9,31 38,35.9 38,42C38,42.6 38.1,43.2 38.2,43.8C34.5,44.5 31.5,47.8 31.5,52C31.5,56.6 35.4,60.5 40,60.5L67,60.5C71.6,60.5 75.5,56.6 75.5,52C75.5,48.5 73,45.5 69.5,44.5Z" />
+
+    <!-- Photo Frame (White) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42.5,55h23c1.38,0 2.5,1.12 2.5,2.5v17c0,1.38 -1.12,2.5 -2.5,2.5h-23c-1.38,0 -2.5,-1.12 -2.5,-2.5v-17c0,-1.38 1.12,-2.5 2.5,-2.5z" />
+
+    <!-- Mountain (Deep Blue) -->
+    <path
+        android:fillColor="#1A1A2E"
+        android:pathData="M42,71l6,-8l6,5l7,-8l5,7l0,8l-24,0z" />
+
+    <!-- Sun (Neon Teal) -->
+    <path
+        android:fillColor="#00FFCC"
+        android:pathData="M60,61.5m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+
+    <!-- Infinity Symbol (Mint) -->
+    <path
+        android:fillColor="#00FFCC"
+        android:pathData="M41.25,22.5c0,0 -2.55,0 -4.25,1.7c-1.7,1.7 -1.7,4.25 0,5.95c1.7,1.7 4.25,1.7 5.95,0l3.4,-3.4l3.4,3.4c1.7,1.7 4.25,1.7 5.95,0c1.7,-1.7 1.7,-4.25 0,-5.95c-1.7,-1.7 -4.25,-1.7 -5.95,1.7l-3.4,3.4l-3.4,-3.4c-0.85,-1.1 -1.7,-1.7 -1.7,-1.7z" />
+
+    <!-- Upload Arrow (White) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M54,45L54,56 M54,45L50,49 M54,45L58,49" />
+
+</vector>
