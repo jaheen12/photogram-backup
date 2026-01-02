@@ -16,6 +16,9 @@ jobs:
           gradle-version: 8.2
       - name: Build APK
         run: gradle assembleDebug
+        env:
+          # This connects your GitHub Repo Secret to the build
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

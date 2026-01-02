@@ -12,42 +12,33 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+
+        // Takes the secret from GitHub and injects it into Java
+        buildConfigField "String", "BOT_TOKEN", "\"${System.getenv("TELEGRAM_BOT_TOKEN")}\""
     }
 
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-}
 
-// THIS BLOCK FIXES THE DUPLICATE CLASS ERROR
-configurations.all {
-    resolutionStrategy {
-        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+    configurations.all {
+        resolutionStrategy {
+            force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+        }
     }
 }
 
 dependencies {
-    // Core AndroidX libraries
     implementation 'androidx.core:core:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
-
-    // Automation Engine
     implementation 'androidx.work:work-runtime:2.8.1'
-
-    // Internet Engine
-    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
-
-    // JSON Engine
-    implementation 'org.json:json:20230227'
-    
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+    implementation 'org.json:json:20230227'
 }

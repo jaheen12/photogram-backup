@@ -20,12 +20,8 @@ import java.io.File;
 import java.util.concurrent.TimeUnit;
 
 public class BackupWorker extends Worker {
-
     private static final String CHANNEL_ID = "sync_channel";
     private static final int NOTIF_ID = 1;
-    
-    // THE PERMANENT OFFICIAL TOKEN
-    private static final String BOT_TOKEN = "8230978256:AAFzZ0MRZv-Hrrr66ZDirFkFco1Eh2xkbS8";
 
     private final SharedPreferences prefs;
     private final DatabaseHelper dbHelper;
@@ -43,83 +39,65 @@ public class BackupWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        // 1. Initial Logic Checks
+        // Access the SECRET token injected by GitHub
+        final String token = BuildConfig.BOT_TOKEN;
+
         boolean isManual = getInputData().getBoolean("is_manual", false);
         long lastSyncSeconds = prefs.getLong("last_sync_timestamp", 0) / 1000;
         int intervalMins = prefs.getInt("sync_interval", 60);
 
-        // Failsafe timer check
         if (!isManual && (System.currentTimeMillis() / 1000 - lastSyncSeconds < TimeUnit.MINUTES.toSeconds(intervalMins))) {
             return Result.success();
         }
 
         String chatId = prefs.getString("chat_id", "");
-        if (chatId.isEmpty()) {
-            dbHelper.addLog("ERROR", "Backup failed: Chat ID is missing in settings.");
+        if (chatId.isEmpty() || token == null || token.isEmpty()) {
+            dbHelper.addLog("ERROR", "Auth Failed: Missing Token or Chat ID.");
             return Result.failure();
         }
 
-        // 2. Start Sync Process
         createNotificationChannel();
-        setForegroundAsync(createForegroundInfo("Processing Photogram sync..."));
-        dbHelper.addLog("INFO", "Backup started" + (isManual ? " (Manual)" : " (Scheduled)"));
+        setForegroundAsync(createForegroundInfo("Safe sync in progress..."));
 
-        TelegramHelper helper = new TelegramHelper(BOT_TOKEN, chatId);
-        int uploadedCount = 0;
+        TelegramHelper helper = new TelegramHelper(token, chatId);
+        int count = 0;
 
         try {
-            uploadedCount = performDeltaSync(lastSyncSeconds, helper);
-            
-            // 3. Finalize and Log
+            count = performDeltaSync(lastSyncSeconds, helper);
             prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
-            dbHelper.addLog("SUCCESS", "Backup complete. " + uploadedCount + " items saved.");
-            showNotification("Photogram Sync", "Backup Complete! " + uploadedCount + " items.");
-            
+            dbHelper.addLog("SUCCESS", "Uploaded " + count + " new items.");
+            showNotification("Photogram Sync", "Complete • " + count + " photos saved.");
         } catch (Exception e) {
-            dbHelper.addLog("RETRY", "Network or API error: " + e.getMessage());
-            return Result.retry(); 
+            dbHelper.addLog("RETRY", "Network Error: " + e.getMessage());
+            return Result.retry();
         }
 
         return Result.success();
     }
 
-    private int performDeltaSync(long sinceTimestamp, TelegramHelper helper) throws Exception {
+    private int performDeltaSync(long since, TelegramHelper helper) throws Exception {
         int count = 0;
         ContentResolver resolver = context.getContentResolver();
         Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-        
-        String[] projection = {MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_MODIFIED};
         String selection = MediaStore.Images.Media.DATE_MODIFIED + " > ?";
-        String[] selectionArgs = {String.valueOf(sinceTimestamp)};
-        String sortOrder = MediaStore.Images.Media.DATE_MODIFIED + " ASC";
-
-        try (Cursor cursor = resolver.query(uri, projection, selection, selectionArgs, sortOrder)) {
+        String[] args = {String.valueOf(since)};
+        
+        try (Cursor cursor = resolver.query(uri, new String[]{MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_MODIFIED}, selection, args, MediaStore.Images.Media.DATE_MODIFIED + " ASC")) {
             if (cursor != null && cursor.moveToFirst()) {
-                int dataIdx = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
-                int dateIdx = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED);
-
                 do {
                     if (isStopped()) break;
-
-                    String filePath = cursor.getString(dataIdx);
-                    long modifiedTime = cursor.getLong(dateIdx);
-                    File file = new File(filePath);
+                    String path = cursor.getString(0);
+                    long mod = cursor.getLong(1);
+                    File file = new File(path);
                     File parent = file.getParentFile();
 
                     if (parent != null && prefs.getBoolean(parent.getAbsolutePath(), false)) {
-                        if (!dbHelper.isFileUploaded(filePath, modifiedTime)) {
-                            String threadId = getOrCreateTopic(parent, helper);
-                            
-                            if (!threadId.isEmpty() && helper.uploadPhoto(file, threadId)) {
-                                dbHelper.markAsUploaded(filePath, modifiedTime);
+                        if (!dbHelper.isFileUploaded(path, mod)) {
+                            String tid = getTopic(parent, helper);
+                            if (!tid.isEmpty() && helper.uploadPhoto(file, tid)) {
+                                dbHelper.markAsUploaded(path, mod);
                                 count++;
-                                
-                                // Flood control: wait 3 seconds between uploads
-                                Thread.sleep(3000); 
-                                
-                                if (count % 2 == 0) {
-                                    showNotification("Photogram Syncing", "Uploaded " + count + " photos...");
-                                }
+                                Thread.sleep(3000); // Flood Control
                             }
                         }
                     }
@@ -129,42 +107,35 @@ public class BackupWorker extends Worker {
         return count;
     }
 
-    private String getOrCreateTopic(File dir, TelegramHelper helper) throws Exception {
+    private String getTopic(File dir, TelegramHelper helper) throws Exception {
         String key = "topic_" + dir.getAbsolutePath();
         String id = prefs.getString(key, "");
         if (id.isEmpty()) {
-            dbHelper.addLog("TOPIC", "Auto-creating topic: " + dir.getName());
             id = helper.createTopic(dir.getName());
             prefs.edit().putString(key, id).apply();
+            dbHelper.addLog("TOPIC", "Created: " + dir.getName());
         }
         return id;
     }
 
     private void showNotification(String title, String msg) {
-        Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
+        Notification n = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle(title)
-                .setContentText(msg)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setSilent(true)
-                .build();
-        notificationManager.notify(NOTIF_ID, notification);
+                .setContentTitle(title).setContentText(msg).setPriority(NotificationCompat.PRIORITY_LOW).setSilent(true).build();
+        notificationManager.notify(NOTIF_ID, n);
     }
 
     private ForegroundInfo createForegroundInfo(String text) {
-        Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
+        Notification n = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Photogram")
-                .setContentText(text)
-                .setOngoing(true)
-                .build();
-        return new ForegroundInfo(NOTIF_ID, notification);
+                .setContentTitle("Photogram").setContentText(text).setOngoing(true).build();
+        return new ForegroundInfo(NOTIF_ID, n);
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Sync Status", NotificationManager.IMPORTANCE_LOW);
-            notificationManager.createNotificationChannel(channel);
+            NotificationChannel c = new NotificationChannel(CHANNEL_ID, "Sync Status", NotificationManager.IMPORTANCE_LOW);
+            notificationManager.createNotificationChannel(c);
         }
     }
 }
