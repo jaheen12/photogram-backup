@@ -15,7 +15,8 @@ jobs:
         with:
           gradle-version: 8.2
       - name: Build APK
-        run: gradle assembleDebug --no-daemon
+        # Added --refresh-dependencies to bypass any 403-cached errors
+        run: gradle assembleDebug --no-daemon --stacktrace --refresh-dependencies
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       - name: Upload APK
