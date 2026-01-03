@@ -1,35 +1,53 @@
 package com.photogram.backup;
+
 import android.Manifest;
-import android.content.*;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.*;
-import android.text.*;
+import android.provider.Settings;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.*;
 import android.widget.*;
+
+// AndroidX & WorkManager
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.work.*;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import androidx.lifecycle.Observer;
+
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends AppCompatActivity {
     ListView listView;
     SwipeRefreshLayout swipeRefresh;
-    ArrayList<File> allFolders = new ArrayList<>(), filteredFolders = new ArrayList<>();
+    ArrayList<File> allFolders = new ArrayList<>();
+    ArrayList<File> filteredFolders = new ArrayList<>();
     BaseAdapter adapter;
     SharedPreferences prefs;
     DatabaseHelper dbHelper;
+    
+    // Dashboard Components
     TextView tvTotalStats, tvSyncStatus, tvCurrentFile;
     ProgressBar pbSync;
+    
+    private static final int PERM_CODE = 101;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
+        
+        // Initialize Components
         prefs = getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE);
         dbHelper = new DatabaseHelper(this);
+        
         listView = findViewById(R.id.folderListView);
         swipeRefresh = findViewById(R.id.swipeRefresh);
         tvTotalStats = findViewById(R.id.tvTotalStats);
@@ -38,11 +56,17 @@ public class MainActivity extends AppCompatActivity {
         pbSync = findViewById(R.id.pbSync);
         EditText etSearch = findViewById(R.id.etSearch);
 
-        swipeRefresh.setOnRefreshListener(this::startAppLogic);
+        // UI Listeners
+        if (swipeRefresh != null) {
+            swipeRefresh.setColorSchemeResources(android.R.color.holo_blue_dark);
+            swipeRefresh.setOnRefreshListener(this::startAppLogic);
+        }
+
         findViewById(R.id.btnSettings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         findViewById(R.id.btnStartBackup).setOnClickListener(v -> scheduleBackup(true));
         findViewById(R.id.btnLogs).setOnClickListener(v -> startActivity(new Intent(this, LogActivity.class)));
 
+        // Real-time Search
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
                 public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -50,52 +74,104 @@ public class MainActivity extends AppCompatActivity {
                 public void afterTextChanged(Editable s) {}
             });
         }
+
         setupAdapter();
         refreshDashboard();
+        
+        // Load UI from Cache
         allFolders.addAll(dbHelper.getSavedFolders());
         filterFolders("");
+        
         handlePermissions();
+        checkBatteryOptimization();
+        
+        // Start monitoring background sync progress
         observeSyncProgress();
     }
 
     private void observeSyncProgress() {
         WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("PhotogramSync")
-            .observe(this, workInfos -> {
-                if (workInfos == null || workInfos.isEmpty()) return;
-                WorkInfo info = workInfos.get(0);
-                if (info.getState() == WorkInfo.State.RUNNING) {
-                    pbSync.setVisibility(View.VISIBLE);
-                    tvCurrentFile.setVisibility(View.VISIBLE);
-                    Data progress = info.getProgress();
-                    String file = progress.getString("current_file");
-                    if (file != null) {
-                        tvCurrentFile.setText("Syncing: " + file);
-                        tvSyncStatus.setText("Cloud Sync active...");
-                        pbSync.setProgress(progress.getInt("progress_percent", 0));
+            .observe(this, new Observer<List<WorkInfo>>() {
+                @Override
+                public void onChanged(List<WorkInfo> workInfos) {
+                    if (workInfos == null || workInfos.isEmpty()) return;
+                    WorkInfo info = workInfos.get(0);
+                    
+                    if (info.getState() == WorkInfo.State.RUNNING) {
+                        if (pbSync != null) pbSync.setVisibility(View.VISIBLE);
+                        if (tvCurrentFile != null) tvCurrentFile.setVisibility(View.VISIBLE);
+                        
+                        Data progress = info.getProgress();
+                        String fileName = progress.getString("current_file");
+                        int percent = progress.getInt("progress_percent", 0);
+                        
+                        if (fileName != null && tvCurrentFile != null) {
+                            tvCurrentFile.setText("Syncing: " + fileName);
+                            tvSyncStatus.setText("Cloud Sync in progress...");
+                            if (percent > 0) pbSync.setProgress(percent);
+                            else pbSync.setIndeterminate(true);
+                        }
+                    } else {
+                        if (pbSync != null) pbSync.setVisibility(View.GONE);
+                        if (tvCurrentFile != null) tvCurrentFile.setVisibility(View.GONE);
+                        refreshDashboard();
                     }
-                } else {
-                    pbSync.setVisibility(View.GONE);
-                    tvCurrentFile.setVisibility(View.GONE);
-                    refreshDashboard();
                 }
             });
     }
 
+    private void scheduleBackup(boolean immediate) {
+        // --- THE NETWORK FAILSAFE FIX ---
+        // 1. Get the very latest setting from Prefs
+        boolean onlyWifi = prefs.getBoolean("only_wifi", false);
+        int interval = prefs.getInt("sync_interval", 60);
+
+        // 2. Build Constraints
+        NetworkType requiredNetwork = onlyWifi ? NetworkType.UNMETERED : NetworkType.CONNECTED;
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(requiredNetwork)
+                .build();
+
+        if (immediate) {
+            Data data = new Data.Builder().putBoolean("is_manual", true).build();
+            OneTimeWorkRequest req = new OneTimeWorkRequest.Builder(BackupWorker.class)
+                    .setConstraints(constraints)
+                    .setInputData(data)
+                    .build();
+            WorkManager.getInstance(this).enqueue(req);
+            Toast.makeText(this, "Manual sync requested...", Toast.LENGTH_SHORT).show();
+        }
+
+        PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(BackupWorker.class, interval, TimeUnit.MINUTES)
+                .setConstraints(constraints)
+                .build();
+
+        // 3. Use REPLACE to force the system to update the network rules immediately
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "PhotogramSync", 
+                ExistingPeriodicWorkPolicy.REPLACE, 
+                periodic);
+    }
+
     private void refreshDashboard() {
-        tvTotalStats.setText(dbHelper.getTotalBackupCount() + " Items Saved");
+        if (tvTotalStats != null) tvTotalStats.setText(dbHelper.getTotalBackupCount() + " Items Saved");
         long last = prefs.getLong("last_sync_timestamp", 0);
-        tvSyncStatus.setText(last > 0 ? "Last Sync: " + new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(last)) : "Cloud Sync Ready");
+        if (tvSyncStatus != null) {
+            if (last > 0) tvSyncStatus.setText("Last Sync: " + new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(last)));
+            else tvSyncStatus.setText("Cloud Sync Ready");
+        }
     }
 
     private void filterFolders(String q) {
         filteredFolders.clear();
         for (File f : allFolders) if (f.getName().toLowerCase().contains(q.toLowerCase())) filteredFolders.add(f);
-        adapter.notifyDataSetChanged();
+        if (adapter != null) adapter.notifyDataSetChanged();
     }
 
     private void handlePermissions() {
         String p = (Build.VERSION.SDK_INT >= 33) ? Manifest.permission.READ_MEDIA_IMAGES : Manifest.permission.READ_EXTERNAL_STORAGE;
-        if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{p, Manifest.permission.POST_NOTIFICATIONS}, 101);
+        if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) 
+            requestPermissions(new String[]{p, Manifest.permission.POST_NOTIFICATIONS}, PERM_CODE);
         else startAppLogic();
     }
 
@@ -103,34 +179,43 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int r, String[] p, int[] g) { startAppLogic(); }
 
     private void startAppLogic() {
-        swipeRefresh.setRefreshing(true);
+        if (swipeRefresh != null) swipeRefresh.setRefreshing(true);
         new Thread(() -> {
             ArrayList<File> fresh = new ArrayList<>();
             recursiveScan(Environment.getExternalStorageDirectory(), fresh);
             dbHelper.saveFolders(fresh);
             runOnUiThread(() -> {
                 allFolders.clear(); allFolders.addAll(fresh);
-                filterFolders(""); swipeRefresh.setRefreshing(false); refreshDashboard();
+                filterFolders(""); 
+                if (swipeRefresh != null) swipeRefresh.setRefreshing(false); 
+                refreshDashboard();
             });
         }).start();
+        scheduleBackup(false);
     }
 
     private void recursiveScan(File dir, ArrayList<File> list) {
         File[] files = dir.listFiles();
         if (files == null) return;
-        boolean hasImg = false;
         for (File f : files) {
             if (f.isDirectory()) {
                 if (!f.getName().startsWith(".") && !f.getName().equalsIgnoreCase("Android")) recursiveScan(f, list);
-            } else if (f.getName().toLowerCase().endsWith(".jpg") || f.getName().toLowerCase().endsWith(".png")) hasImg = true;
+            } else if (f.getName().toLowerCase().endsWith(".jpg") || f.getName().toLowerCase().endsWith(".png")) {
+                list.add(dir);
+                break;
+            }
         }
-        if (hasImg) list.add(dir);
     }
 
-    private void scheduleBackup(boolean immediate) {
-        Constraints c = new Constraints.Builder().setRequiredNetworkType(prefs.getBoolean("only_wifi", false) ? NetworkType.UNMETERED : NetworkType.CONNECTED).build();
-        if (immediate) WorkManager.getInstance(this).enqueue(new OneTimeWorkRequest.Builder(BackupWorker.class).setConstraints(c).setInputData(new Data.Builder().putBoolean("is_manual", true).build()).build());
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork("PhotogramSync", ExistingPeriodicWorkPolicy.KEEP, new PeriodicWorkRequest.Builder(BackupWorker.class, prefs.getInt("sync_interval", 60), java.util.concurrent.TimeUnit.MINUTES).setConstraints(c).build());
+    private void checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            }
+        }
     }
 
     void setupAdapter() {
