@@ -1,13 +1,17 @@
-plugins { id 'com.android.application' }
+plugins {
+    id 'com.android.application'
+    // NEW: Apply the Google Services Plugin
+    id 'com.google.gms.google-services'
+}
 
 android {
     namespace 'com.photogram.backup'
-    compileSdk 34 // FIXED: Bumped to 34 to satisfy AndroidX dependencies
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.photogram.backup"
         minSdk 21
-        targetSdk 33 // Keeps stable behavior
+        targetSdk 33
         versionCode 1
         versionName "1.0"
 
@@ -26,7 +30,6 @@ android {
     }
 }
 
-// Ensure Kotlin versions are unified
 configurations.all {
     resolutionStrategy {
         force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
@@ -35,11 +38,21 @@ configurations.all {
 }
 
 dependencies {
+    // UI & Core
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.12.0'
-    implementation 'androidx.work:work-runtime:2.8.1'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation 'androidx.lifecycle:lifecycle-livedata:2.6.1'
+
+    // Automation
+    implementation 'androidx.work:work-runtime:2.8.1'
+
+    // NEW: Firebase BOM (Bill of Materials)
+    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-database'
+
+    // Internet & Data
     implementation 'com.squareup.okhttp3:okhttp:4.11.0'
     implementation 'org.json:json:20230227'
 }

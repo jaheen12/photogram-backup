@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "158422172216",
+    "project_id": "photogram-dd154",
+    "storage_bucket": "photogram-dd154.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:158422172216:android:db9fce82741a5b47099ccd",
+        "android_client_info": {
+          "package_name": "com.photogram.backup"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBSQ_vLQrgkbqBuSmonfRwkukYAF4X-8OY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
