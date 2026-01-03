@@ -1,12 +1,19 @@
 package com.photogram.backup;
 
 import android.content.Intent;
-import android.os.Build; // Required for device model
+import android.os.Build;
 import android.os.Bundle;
-import android.widget.*;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.TextView;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.database.*;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 import java.util.HashMap;
 
 public class LoginActivity extends AppCompatActivity {
@@ -14,7 +21,6 @@ public class LoginActivity extends AppCompatActivity {
     private FirebaseDatabase db;
     private EditText etEmail, etPassword;
     private TextView tvInfo;
-
     private static final String DB_URL = "https://photogram-dd154-default-rtdb.asia-southeast1.firebasedatabase.app/";
 
     @Override
@@ -29,25 +35,37 @@ public class LoginActivity extends AppCompatActivity {
         etPassword = findViewById(R.id.etPassword);
         tvInfo = findViewById(R.id.tvStatusInfo);
 
-        findViewById(R.id.btnLogin).setOnClickListener(v -> loginUser());
-        findViewById(R.id.btnRegister).setOnClickListener(v -> registerUser());
+        findViewById(R.id.btnLogin).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                loginUser();
+            }
+        });
+
+        findViewById(R.id.btnRegister).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                registerUser();
+            }
+        });
         
-        if (auth.getCurrentUser() != null) checkApprovalStatus();
+        if (auth.getCurrentUser() != null) {
+            checkApprovalStatus();
+        }
     }
 
     private void registerUser() {
-        String email = etEmail.getText().toString().trim();
+        final String email = etEmail.getText().toString().trim();
         String pass = etPassword.getText().toString().trim();
 
         if (email.isEmpty() || pass.length() < 6) {
-            Toast.makeText(this, "Valid email and 6+ password required", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Enter email and 6+ char password", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        tvInfo.setText("Registering in Singapore Cloud...");
+        tvInfo.setText("Creating secure account...");
         auth.createUserWithEmailAndPassword(email, pass).addOnSuccessListener(authResult -> {
             String uid = auth.getCurrentUser().getUid();
-            
             HashMap<String, Object> userMap = new HashMap<>();
             userMap.put("email", email);
             userMap.put("device", Build.MANUFACTURER + " " + Build.MODEL);
@@ -56,44 +74,46 @@ public class LoginActivity extends AppCompatActivity {
             userMap.put("usage_count", 0);
             userMap.put("last_sync_date", "never");
 
-            db.getReference("users").child(uid).setValue(userMap)
-                .addOnSuccessListener(aVoid -> {
-                    tvInfo.setText("Success! Ask admin to approve: " + email);
-                    tvInfo.setTextColor(0xFFFFA500); 
-                    auth.signOut();
-                });
+            db.getReference("users").child(uid).setValue(userMap).addOnSuccessListener(aVoid -> {
+                tvInfo.setText("Registered! Please ask Admin for approval.");
+                auth.signOut();
+            });
         }).addOnFailureListener(e -> {
-            tvInfo.setText("Error: " + e.getMessage());
-            tvInfo.setTextColor(android.graphics.Color.RED);
+            tvInfo.setText("Registration Failed: " + e.getMessage());
         });
     }
 
     private void loginUser() {
         String email = etEmail.getText().toString().trim();
         String pass = etPassword.getText().toString().trim();
+
         if (email.isEmpty() || pass.isEmpty()) return;
 
-        tvInfo.setText("Verifying...");
+        tvInfo.setText("Authenticating...");
         auth.signInWithEmailAndPassword(email, pass)
             .addOnSuccessListener(r -> checkApprovalStatus())
             .addOnFailureListener(e -> {
                 tvInfo.setText("Login Failed: " + e.getMessage());
-                tvInfo.setTextColor(android.graphics.Color.RED);
             });
     }
 
     private void checkApprovalStatus() {
         String uid = auth.getCurrentUser().getUid();
-        db.getReference("users").child(uid).child("status")
-            .addListenerForSingleValueEvent(new ValueEventListener() {
+        // Real-time listener: The app opens instantly when you change the status in Firebase
+        db.getReference("users").child(uid).addValueEventListener(new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snapshot) {
-                String status = snapshot.getValue(String.class);
+                if (!snapshot.exists()) return;
+                String status = snapshot.child("status").getValue(String.class);
+                
                 if ("approved".equals(status) || "limited".equals(status)) {
-                    startActivity(new Intent(LoginActivity.this, MainActivity.class));
-                    finish();
+                    if (!MainActivity.active) {
+                        Intent intent = new Intent(LoginActivity.this, MainActivity.class);
+                        startActivity(intent);
+                        finish();
+                    }
                 } else {
-                    tvInfo.setText("Denied: " + (status == null ? "pending" : status));
+                    tvInfo.setText("Access Denied: Account is " + (status == null ? "pending" : status));
                     tvInfo.setTextColor(android.graphics.Color.RED);
                     auth.signOut();
                 }

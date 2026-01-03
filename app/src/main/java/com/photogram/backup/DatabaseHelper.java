@@ -29,23 +29,19 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     @Override
     public void onUpgrade(SQLiteDatabase db, int old, int next) {}
 
-    // --- CLOUD SYNC METHODS ---
-
     public String exportHistoryToJson() {
         SQLiteDatabase db = this.getReadableDatabase();
         JSONArray array = new JSONArray();
-        Cursor c = db.query("history", new String[]{"file_path", "last_modified"}, null, null, null, null, null);
-        try {
+        try (Cursor c = db.query("history", new String[]{"file_path", "last_modified"}, null, null, null, null, null)) {
             if (c != null && c.moveToFirst()) {
                 do {
                     JSONObject obj = new JSONObject();
-                    obj.put("p", c.getString(0)); // path
-                    obj.put("m", c.getLong(1));   // modified
+                    obj.put("p", c.getString(0));
+                    obj.put("m", c.getLong(1));
                     array.put(obj);
                 } while (c.moveToNext());
             }
         } catch (Exception e) { e.printStackTrace(); }
-        finally { if (c != null) c.close(); }
         return array.toString();
     }
 
@@ -67,8 +63,6 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         finally { db.endTransaction(); }
     }
 
-    // --- EXISTING LOGIC ---
-
     public void addLog(String type, String message) {
         try {
             SQLiteDatabase db = this.getWritableDatabase();
@@ -78,31 +72,24 @@ public class DatabaseHelper extends SQLiteOpenHelper {
             v.put("message", message);
             db.insert("logs", null, v);
             db.execSQL("DELETE FROM logs WHERE id NOT IN (SELECT id FROM logs ORDER BY timestamp DESC LIMIT 50)");
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) {}
     }
 
     public ArrayList<String> getRecentLogs() {
         ArrayList<String> list = new ArrayList<>();
-        try {
-            SQLiteDatabase db = this.getReadableDatabase();
-            Cursor c = db.query("logs", null, null, null, null, null, "timestamp DESC");
+        try (Cursor c = getReadableDatabase().query("logs", null, null, null, null, null, "timestamp DESC")) {
             if (c != null && c.moveToFirst()) {
                 do { list.add("[" + c.getString(2) + "] " + c.getString(3)); } while (c.moveToNext());
-                c.close();
             }
-        } catch (Exception e) { list.add("Error loading logs"); }
+        } catch (Exception e) {}
         return list;
     }
 
     public int getTotalBackupCount() {
-        SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.rawQuery("SELECT COUNT(*) FROM history", null);
-        int count = 0;
-        if (cursor != null && cursor.moveToFirst()) {
-            count = cursor.getInt(0);
-            cursor.close();
-        }
-        return count;
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM history", null)) {
+            if (c != null && c.moveToFirst()) return c.getInt(0);
+        } catch (Exception e) {}
+        return 0;
     }
 
     public void saveFolders(ArrayList<File> folderList) {
@@ -121,29 +108,25 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
     public ArrayList<File> getSavedFolders() {
         ArrayList<File> list = new ArrayList<>();
-        SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.query("folders", null, null, null, null, null, "name ASC");
-        if (cursor != null && cursor.moveToFirst()) {
-            do { list.add(new File(cursor.getString(0))); } while (cursor.moveToNext());
-            cursor.close();
-        }
+        try (Cursor c = getReadableDatabase().query("folders", null, null, null, null, null, "name ASC")) {
+            if (c != null && c.moveToFirst()) {
+                do { list.add(new File(c.getString(0))); } while (c.moveToNext());
+            }
+        } catch (Exception e) {}
         return list;
     }
 
     public boolean isFileUploaded(String path, long modified) {
-        SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.query("history", new String[]{"id"}, "file_path = ? AND last_modified = ?", new String[]{path, String.valueOf(modified)}, null, null, null);
-        boolean exists = (cursor != null && cursor.getCount() > 0);
-        if (cursor != null) cursor.close();
-        return exists;
+        try (Cursor c = getReadableDatabase().query("history", new String[]{"id"}, "file_path = ? AND last_modified = ?", new String[]{path, String.valueOf(modified)}, null, null, null)) {
+            return c != null && c.getCount() > 0;
+        } catch (Exception e) { return false; }
     }
 
     public void markAsUploaded(String path, long modified) {
-        SQLiteDatabase db = this.getWritableDatabase();
-        ContentValues values = new ContentValues();
-        values.put("file_path", path);
-        values.put("last_modified", modified);
-        values.put("upload_date", System.currentTimeMillis());
-        db.insertWithOnConflict("history", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+        ContentValues v = new ContentValues();
+        v.put("file_path", path);
+        v.put("last_modified", modified);
+        v.put("upload_date", System.currentTimeMillis());
+        getWritableDatabase().insertWithOnConflict("history", null, v, SQLiteDatabase.CONFLICT_REPLACE);
     }
 }
