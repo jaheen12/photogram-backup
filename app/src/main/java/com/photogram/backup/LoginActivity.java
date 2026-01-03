@@ -1,6 +1,7 @@
 package com.photogram.backup;
 
 import android.content.Intent;
+import android.os.Build; // Required for device model
 import android.os.Bundle;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
@@ -14,7 +15,6 @@ public class LoginActivity extends AppCompatActivity {
     private EditText etEmail, etPassword;
     private TextView tvInfo;
 
-    // YOUR EXPLICIT REGIONAL URL
     private static final String DB_URL = "https://photogram-dd154-default-rtdb.asia-southeast1.firebasedatabase.app/";
 
     @Override
@@ -23,7 +23,6 @@ public class LoginActivity extends AppCompatActivity {
         setContentView(R.layout.activity_login);
 
         auth = FirebaseAuth.getInstance();
-        // Force initialization with your Singapore URL
         db = FirebaseDatabase.getInstance(DB_URL);
         
         etEmail = findViewById(R.id.etEmail);
@@ -41,32 +40,30 @@ public class LoginActivity extends AppCompatActivity {
         String pass = etPassword.getText().toString().trim();
 
         if (email.isEmpty() || pass.length() < 6) {
-            Toast.makeText(this, "Enter valid email and 6+ char password", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Valid email and 6+ password required", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        tvInfo.setText("Creating account in Cloud...");
+        tvInfo.setText("Registering in Singapore Cloud...");
         auth.createUserWithEmailAndPassword(email, pass).addOnSuccessListener(authResult -> {
             String uid = auth.getCurrentUser().getUid();
             
             HashMap<String, Object> userMap = new HashMap<>();
+            userMap.put("email", email);
+            userMap.put("device", Build.MANUFACTURER + " " + Build.MODEL);
             userMap.put("status", "pending");
-            userMap.put("daily_limit", 20); // The limit you requested
+            userMap.put("daily_limit", 20);
             userMap.put("usage_count", 0);
-            userMap.put("last_sync_date", "2026-01-01");
+            userMap.put("last_sync_date", "never");
 
-            // Direct reference to the regional DB
             db.getReference("users").child(uid).setValue(userMap)
                 .addOnSuccessListener(aVoid -> {
-                    tvInfo.setText("Registered! Wait for admin approval in Bogura.");
+                    tvInfo.setText("Success! Ask admin to approve: " + email);
                     tvInfo.setTextColor(0xFFFFA500); 
                     auth.signOut();
-                })
-                .addOnFailureListener(e -> {
-                    tvInfo.setText("Database Write Failed: " + e.getMessage());
                 });
         }).addOnFailureListener(e -> {
-            tvInfo.setText("Auth Failed: " + e.getMessage());
+            tvInfo.setText("Error: " + e.getMessage());
             tvInfo.setTextColor(android.graphics.Color.RED);
         });
     }
@@ -76,7 +73,7 @@ public class LoginActivity extends AppCompatActivity {
         String pass = etPassword.getText().toString().trim();
         if (email.isEmpty() || pass.isEmpty()) return;
 
-        tvInfo.setText("Verifying with Singapore Server...");
+        tvInfo.setText("Verifying...");
         auth.signInWithEmailAndPassword(email, pass)
             .addOnSuccessListener(r -> checkApprovalStatus())
             .addOnFailureListener(e -> {
@@ -96,14 +93,12 @@ public class LoginActivity extends AppCompatActivity {
                     startActivity(new Intent(LoginActivity.this, MainActivity.class));
                     finish();
                 } else {
-                    tvInfo.setText("Locked: Status is " + (status == null ? "pending" : status));
+                    tvInfo.setText("Denied: " + (status == null ? "pending" : status));
                     tvInfo.setTextColor(android.graphics.Color.RED);
                     auth.signOut();
                 }
             }
-            @Override public void onCancelled(DatabaseError error) {
-                tvInfo.setText("Cloud Error: " + error.getMessage());
-            }
+            @Override public void onCancelled(DatabaseError error) {}
         });
     }
 }
