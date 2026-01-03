@@ -1,25 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Network Permissions for Firebase and Telegram -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Storage Permissions for Photo Access -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Reliability and Background Permissions -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
     <application
         android:allowBackup="true"
         android:label="Photogram"
         android:icon="@drawable/app_icon"
         android:roundIcon="@drawable/app_icon"
         android:theme="@style/AppTheme">
-        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustPan">
+
+        <!-- 1. ENTRY POINT: Login Activity handles Auth & Approval -->
+        <activity 
+            android:name=".LoginActivity"
+            android:exported="true"
+            android:theme="@style/AppTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".SettingsActivity" />
-        <activity android:name=".LogActivity" android:theme="@style/Theme.AppCompat.Light.Dialog" />
+
+        <!-- 2. Main Dashboard (Protected) -->
+        <activity 
+            android:name=".MainActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustPan" />
+
+        <!-- 3. Telegram Settings -->
+        <activity 
+            android:name=".SettingsActivity"
+            android:label="Settings" />
+
+        <!-- 4. System Logs (Dialog Theme) -->
+        <activity 
+            android:name=".LogActivity" 
+            android:label="Sync Logs"
+            android:theme="@style/Theme.AppCompat.Light.Dialog" />
+
     </application>
 </manifest>

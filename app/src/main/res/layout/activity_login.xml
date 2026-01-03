@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/surface_bg"
+    android:gravity="center"
+    android:padding="32dp">
+
+    <!-- App Logo Placeholder (Circular) -->
+    <ImageView
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:src="@drawable/app_icon"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Photogram"
+        android:textColor="@color/brand_vibrant"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:letterSpacing="-0.02" />
+
+    <TextView
+        android:id="@+id/tvStatusInfo"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Secure Cloud Backup"
+        android:textColor="@color/text_body"
+        android:textSize="14sp"
+        android:layout_marginBottom="40dp" />
+
+    <EditText
+        android:id="@+id/etEmail"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:hint="Email Address"
+        android:background="@drawable/edit_text_bg"
+        android:inputType="textEmailAddress"
+        android:layout_marginBottom="16dp"
+        android:paddingLeft="16dp"
+        android:textColor="@color/text_title" />
+
+    <EditText
+        android:id="@+id/etPassword"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:hint="Password"
+        android:background="@drawable/edit_text_bg"
+        android:inputType="textPassword"
+        android:layout_marginBottom="24dp"
+        android:paddingLeft="16dp"
+        android:textColor="@color/text_title" />
+
+    <Button
+        android:id="@+id/btnLogin"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Login"
+        android:textAllCaps="false"
+        android:backgroundTint="@color/brand_deep"
+        android:textColor="@color/text_white"
+        android:textStyle="bold"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/btnRegister"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Don't have an account? Register"
+        android:textColor="@color/brand_vibrant"
+        android:layout_marginTop="24dp"
+        android:textStyle="bold" />
+
+</LinearLayout>
