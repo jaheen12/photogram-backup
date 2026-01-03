@@ -2,7 +2,6 @@ package com.photogram.backup;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import com.google.firebase.auth.FirebaseAuth;
@@ -15,13 +14,18 @@ public class LoginActivity extends AppCompatActivity {
     private EditText etEmail, etPassword;
     private TextView tvInfo;
 
+    // YOUR EXPLICIT REGIONAL URL
+    private static final String DB_URL = "https://photogram-dd154-default-rtdb.asia-southeast1.firebasedatabase.app/";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_login);
 
         auth = FirebaseAuth.getInstance();
-        db = FirebaseDatabase.getInstance();
+        // Force initialization with your Singapore URL
+        db = FirebaseDatabase.getInstance(DB_URL);
+        
         etEmail = findViewById(R.id.etEmail);
         etPassword = findViewById(R.id.etPassword);
         tvInfo = findViewById(R.id.tvStatusInfo);
@@ -29,10 +33,7 @@ public class LoginActivity extends AppCompatActivity {
         findViewById(R.id.btnLogin).setOnClickListener(v -> loginUser());
         findViewById(R.id.btnRegister).setOnClickListener(v -> registerUser());
         
-        // If user is already logged in, check their status immediately
-        if (auth.getCurrentUser() != null) {
-            checkApprovalStatus();
-        }
+        if (auth.getCurrentUser() != null) checkApprovalStatus();
     }
 
     private void registerUser() {
@@ -44,25 +45,28 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
-        tvInfo.setText("Creating account...");
+        tvInfo.setText("Creating account in Cloud...");
         auth.createUserWithEmailAndPassword(email, pass).addOnSuccessListener(authResult -> {
             String uid = auth.getCurrentUser().getUid();
             
-            // Create initial user record in Cloud Database
             HashMap<String, Object> userMap = new HashMap<>();
             userMap.put("status", "pending");
-            userMap.put("daily_limit", 20); // Default limit for new users
+            userMap.put("daily_limit", 20); // The limit you requested
             userMap.put("usage_count", 0);
-            userMap.put("last_sync_date", "never");
+            userMap.put("last_sync_date", "2026-01-01");
 
+            // Direct reference to the regional DB
             db.getReference("users").child(uid).setValue(userMap)
                 .addOnSuccessListener(aVoid -> {
-                    tvInfo.setText("Registration successful! Wait for admin approval.");
-                    tvInfo.setTextColor(0xFFFFA500); // Orange
+                    tvInfo.setText("Registered! Wait for admin approval in Bogura.");
+                    tvInfo.setTextColor(0xFFFFA500); 
                     auth.signOut();
+                })
+                .addOnFailureListener(e -> {
+                    tvInfo.setText("Database Write Failed: " + e.getMessage());
                 });
         }).addOnFailureListener(e -> {
-            tvInfo.setText("Error: " + e.getMessage());
+            tvInfo.setText("Auth Failed: " + e.getMessage());
             tvInfo.setTextColor(android.graphics.Color.RED);
         });
     }
@@ -70,10 +74,9 @@ public class LoginActivity extends AppCompatActivity {
     private void loginUser() {
         String email = etEmail.getText().toString().trim();
         String pass = etPassword.getText().toString().trim();
-
         if (email.isEmpty() || pass.isEmpty()) return;
 
-        tvInfo.setText("Authenticating...");
+        tvInfo.setText("Verifying with Singapore Server...");
         auth.signInWithEmailAndPassword(email, pass)
             .addOnSuccessListener(r -> checkApprovalStatus())
             .addOnFailureListener(e -> {
@@ -84,26 +87,22 @@ public class LoginActivity extends AppCompatActivity {
 
     private void checkApprovalStatus() {
         String uid = auth.getCurrentUser().getUid();
-        tvInfo.setText("Checking access permissions...");
-
         db.getReference("users").child(uid).child("status")
             .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snapshot) {
                 String status = snapshot.getValue(String.class);
-                
-                // Allow entry only if status is "approved" or "limited"
                 if ("approved".equals(status) || "limited".equals(status)) {
                     startActivity(new Intent(LoginActivity.this, MainActivity.class));
                     finish();
                 } else {
-                    tvInfo.setText("Access Denied: Account is " + (status == null ? "pending" : status));
+                    tvInfo.setText("Locked: Status is " + (status == null ? "pending" : status));
                     tvInfo.setTextColor(android.graphics.Color.RED);
                     auth.signOut();
                 }
             }
             @Override public void onCancelled(DatabaseError error) {
-                tvInfo.setText("Database error. Try again.");
+                tvInfo.setText("Cloud Error: " + error.getMessage());
             }
         });
     }

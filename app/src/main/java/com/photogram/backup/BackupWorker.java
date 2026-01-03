@@ -19,7 +19,17 @@ import androidx.work.ForegroundInfo;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 import androidx.work.Data;
+
+// Firebase Imports
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.android.gms.tasks.Tasks;
+
 import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -27,11 +37,17 @@ public class BackupWorker extends Worker {
 
     private static final String CHANNEL_ID = "sync_channel";
     private static final int NOTIF_ID = 1;
+    private static final String DB_URL = "https://photogram-dd154-default-rtdb.asia-southeast1.firebasedatabase.app/";
 
     private final SharedPreferences prefs;
     private final DatabaseHelper dbHelper;
     private final NotificationManager notificationManager;
     private final Context context;
+
+    // Quota Variables
+    private boolean isLimited = false;
+    private int dailyLimit = 0;
+    private int currentUsage = 0;
 
     public BackupWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
@@ -44,15 +60,18 @@ public class BackupWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        // --- FAILSAFE 1: HARDWARE NETWORK CHECK ---
-        boolean onlyWifi = prefs.getBoolean("only_wifi", false);
-        if (onlyWifi && !isWifiConnected()) {
-            dbHelper.addLog("INFO", "Sync paused: Waiting for Wi-Fi connection.");
-            // Returning retry tells WorkManager to try again when constraints are met
-            return Result.retry(); 
+        // 1. FIREBASE AUTH CHECK
+        String uid = FirebaseAuth.getInstance().getUid();
+        if (uid == null) {
+            dbHelper.addLog("ERROR", "Sync failed: No user logged in.");
+            return Result.failure();
         }
 
-        // --- FAILSAFE 2: RECENT SYNC CHECK ---
+        // 2. NETWORK & INTERVAL CHECKS
+        if (prefs.getBoolean("only_wifi", false) && !isWifiConnected()) {
+            return Result.retry();
+        }
+
         boolean isManual = getInputData().getBoolean("is_manual", false);
         long lastSyncSeconds = prefs.getLong("last_sync_timestamp", 0) / 1000;
         int intervalMins = prefs.getInt("sync_interval", 60);
@@ -61,42 +80,37 @@ public class BackupWorker extends Worker {
             return Result.success();
         }
 
-        // --- TOKEN & AUTH ---
-        String userToken = prefs.getString("custom_bot_token", "");
-        final String token = (userToken != null && !userToken.isEmpty()) ? userToken : BuildConfig.BOT_TOKEN;
-        String chatId = prefs.getString("chat_id", "");
-
-        if (token == null || token.isEmpty() || chatId.isEmpty()) {
-            dbHelper.addLog("ERROR", "Backup failed: Missing Token or Chat ID.");
-            return Result.failure();
+        // 3. FETCH QUOTA & STATUS FROM FIREBASE (Synchronous)
+        if (!fetchQuotaFromFirebase(uid)) {
+            dbHelper.addLog("ERROR", "Cloud verification failed. Check internet.");
+            return Result.retry();
         }
 
-        // --- START SYNC ---
+        // 4. START SYNC PROCESS
         createNotificationChannel();
         setForegroundAsync(createForegroundInfo("Safe Cloud Syncing..."));
-        dbHelper.addLog("INFO", "Sync started" + (isManual ? " (Manual)" : " (Scheduled)"));
         
+        final String token = BuildConfig.BOT_TOKEN; // Using Secret Injected Token
+        String chatId = prefs.getString("chat_id", "");
+        if (chatId.isEmpty()) return Result.failure();
+
         TelegramHelper helper = new TelegramHelper(token, chatId);
         int uploadedCount = 0;
 
         try {
-            // A. Get Pinned Registry from Telegram
             Map<String, String> registry = helper.getTopicRegistry();
 
-            // B. Restore History if local DB is empty
+            // Restore memory if first time
             if (dbHelper.getTotalBackupCount() == 0 && registry.containsKey("CLOUD_HISTORY_ID")) {
-                dbHelper.addLog("INFO", "Downloading history from Telegram...");
                 String historyJson = helper.downloadHistoryFile(registry.get("CLOUD_HISTORY_ID"));
                 dbHelper.importHistoryFromJson(historyJson);
-                dbHelper.addLog("SUCCESS", "History restored. Skipping old items.");
             }
 
-            // C. Perform Delta Sync with Progress Updates
-            uploadedCount = performDeltaSync(lastSyncSeconds, helper, registry);
+            // --- RUN DELTA SYNC WITH QUOTA ENFORCEMENT ---
+            uploadedCount = performDeltaSync(lastSyncSeconds, helper, registry, uid);
 
-            // D. Save updated history to Telegram Cloud
+            // Save state to Cloud
             if (uploadedCount > 0 || !registry.containsKey("CLOUD_HISTORY_ID")) {
-                dbHelper.addLog("INFO", "Updating cloud history file...");
                 String newFileId = helper.uploadHistoryFile(dbHelper.exportHistoryToJson());
                 if (newFileId != null) {
                     registry.put("CLOUD_HISTORY_ID", newFileId);
@@ -104,69 +118,96 @@ public class BackupWorker extends Worker {
                 }
             }
 
-            // Wrap up
             prefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply();
             dbHelper.addLog("SUCCESS", "Backup complete. Saved " + uploadedCount + " items.");
             return Result.success();
 
         } catch (Exception e) {
-            dbHelper.addLog("RETRY", "Sync interrupted: " + e.getMessage());
-            return Result.retry(); 
+            dbHelper.addLog("ERROR", "Sync interrupted: " + e.getMessage());
+            return Result.retry();
         }
     }
 
-    private int performDeltaSync(long since, TelegramHelper helper, Map<String, String> registry) throws Exception {
+    private boolean fetchQuotaFromFirebase(String uid) {
+        try {
+            // Using Tasks.await to make Firebase calls work in doWork thread
+            DataSnapshot snap = Tasks.await(FirebaseDatabase.getInstance(DB_URL).getReference("users").child(uid).get());
+            
+            String status = snap.child("status").getValue(String.class);
+            if (!"approved".equals(status) && !"limited".equals(status)) return false;
+
+            isLimited = "limited".equals(status);
+            if (isLimited) {
+                dailyLimit = snap.child("daily_limit").getValue(Integer.class);
+                currentUsage = snap.child("usage_count").getValue(Integer.class);
+                String lastDate = snap.child("last_sync_date").getValue(String.class);
+                String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+
+                // Reset counter if it's a new day
+                if (!today.equals(lastDate)) {
+                    currentUsage = 0;
+                    FirebaseDatabase.getInstance(DB_URL).getReference("users").child(uid).child("usage_count").setValue(0);
+                    FirebaseDatabase.getInstance(DB_URL).getReference("users").child(uid).child("last_sync_date").setValue(today);
+                }
+            }
+            return true;
+        } catch (Exception e) { return false; }
+    }
+
+    private int performDeltaSync(long since, TelegramHelper helper, Map<String, String> registry, String uid) throws Exception {
         int count = 0;
         ContentResolver resolver = context.getContentResolver();
         Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
         
-        String[] projection = {MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_MODIFIED};
-        String selection = MediaStore.Images.Media.DATE_MODIFIED + " > ?";
-        String[] selectionArgs = {String.valueOf(since)};
-        String sortOrder = MediaStore.Images.Media.DATE_MODIFIED + " ASC";
-
-        try (Cursor cursor = resolver.query(uri, projection, selection, selectionArgs, sortOrder)) {
+        try (Cursor cursor = resolver.query(uri, new String[]{MediaStore.Images.Media.DATA, MediaStore.Images.Media.DATE_MODIFIED}, MediaStore.Images.Media.DATE_MODIFIED + " > ?", new String[]{String.valueOf(since)}, MediaStore.Images.Media.DATE_MODIFIED + " ASC")) {
             if (cursor != null && cursor.moveToFirst()) {
-                int totalItems = cursor.getCount();
-                int currentIndex = 0;
+                int total = cursor.getCount();
+                int currentIdx = 0;
 
                 do {
                     if (isStopped()) break;
+                    
+                    // --- QUOTA CHECK ---
+                    if (isLimited && currentUsage >= dailyLimit) {
+                        dbHelper.addLog("LIMIT", "Daily limit reached (" + dailyLimit + "). Sync stopped.");
+                        break;
+                    }
 
-                    String filePath = cursor.getString(0);
-                    long modifiedTime = cursor.getLong(1);
-                    File file = new File(filePath);
+                    String path = cursor.getString(0);
+                    long mod = cursor.getLong(1);
+                    File file = new File(path);
                     File parent = file.getParentFile();
 
                     if (parent != null && prefs.getBoolean(parent.getAbsolutePath(), false)) {
-                        if (!dbHelper.isFileUploaded(filePath, modifiedTime)) {
+                        if (!dbHelper.isFileUploaded(path, mod)) {
                             
-                            // Send progress to Dashboard
-                            Data progress = new Data.Builder()
-                                .putString("current_file", file.getName())
-                                .putInt("progress_percent", (int) ((currentIndex / (float) totalItems) * 100))
-                                .build();
-                            setProgressAsync(progress);
+                            setProgressAsync(new Data.Builder().putString("current_file", file.getName()).putInt("progress_percent", (int)((currentIdx/(float)total)*100)).build());
 
-                            String threadId = getTopicFromRegistry(parent, helper, registry);
-                            if (!threadId.isEmpty() && helper.uploadPhoto(file, threadId)) {
-                                dbHelper.markAsUploaded(filePath, modifiedTime);
+                            String tid = getTopic(parent, helper, registry);
+                            if (!tid.isEmpty() && helper.uploadPhoto(file, tid)) {
+                                dbHelper.markAsUploaded(path, mod);
                                 count++;
-                                Thread.sleep(3000); // Flood control
+                                
+                                // Update Firebase Usage
+                                if (isLimited) {
+                                    currentUsage++;
+                                    FirebaseDatabase.getInstance(DB_URL).getReference("users").child(uid).child("usage_count").setValue(currentUsage);
+                                }
+                                
+                                Thread.sleep(3000); // Flood Control
                             }
                         }
                     }
-                    currentIndex++;
+                    currentIdx++;
                 } while (cursor.moveToNext());
             }
         }
         return count;
     }
 
-    private String getTopicFromRegistry(File dir, TelegramHelper helper, Map<String, String> registry) throws Exception {
+    private String getTopic(File dir, TelegramHelper helper, Map<String, String> registry) throws Exception {
         String name = dir.getName();
         if (registry.containsKey(name)) return registry.get(name);
-        
         String id = helper.createTopic(name);
         registry.put(name, id);
         helper.saveTopicRegistry(registry);
@@ -177,29 +218,21 @@ public class BackupWorker extends Worker {
         ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Network network = cm.getActiveNetwork();
-            NetworkCapabilities capabilities = cm.getNetworkCapabilities(network);
-            return capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
-        } else {
-            android.net.NetworkInfo info = cm.getActiveNetworkInfo();
-            return info != null && info.isConnected() && info.getType() == ConnectivityManager.TYPE_WIFI;
+            Network n = cm.getActiveNetwork();
+            NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+            return nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
         }
+        return false;
     }
 
     private ForegroundInfo createForegroundInfo(String text) {
-        Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Photogram Sync")
-                .setContentText(text)
-                .setOngoing(true)
-                .build();
-        return new ForegroundInfo(NOTIF_ID, notification);
+        Notification n = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID).setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("Photogram Sync").setContentText(text).setOngoing(true).build();
+        return new ForegroundInfo(NOTIF_ID, n);
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Sync Status", NotificationManager.IMPORTANCE_LOW);
-            notificationManager.createNotificationChannel(channel);
+            notificationManager.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "Sync", NotificationManager.IMPORTANCE_LOW));
         }
     }
 }
