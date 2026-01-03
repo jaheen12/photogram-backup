@@ -123,7 +123,6 @@ public class MainActivity extends AppCompatActivity {
         if (swipeRefresh != null) swipeRefresh.setRefreshing(true);
         
         new Thread(() -> {
-            // --- THE NEW MEDIASTORE SCANNER ---
             ArrayList<File> fresh = scanFoldersWithMediaStore();
             dbHelper.saveFolders(fresh);
             
@@ -142,11 +141,8 @@ public class MainActivity extends AppCompatActivity {
     private ArrayList<File> scanFoldersWithMediaStore() {
         HashSet<String> folderPaths = new HashSet<>();
         ArrayList<File> folderList = new ArrayList<>();
-        
         ContentResolver contentResolver = getContentResolver();
         Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-        
-        // We only need the DATA (path) to find the parent folder
         String[] projection = { MediaStore.Images.Media.DATA };
         
         try (Cursor cursor = contentResolver.query(uri, projection, null, null, null)) {
@@ -159,7 +155,6 @@ public class MainActivity extends AppCompatActivity {
                         File parent = file.getParentFile();
                         if (parent != null) {
                             String parentPath = parent.getAbsolutePath();
-                            // Skip hidden folders and Android system folders
                             if (!parent.getName().startsWith(".") && !parentPath.contains("/Android/")) {
                                 if (!folderPaths.contains(parentPath)) {
                                     folderPaths.add(parentPath);
@@ -173,8 +168,6 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             dbHelper.addLog("ERROR", "Scanner failed: " + e.getMessage());
         }
-        
-        // Professional sort: Alphabetical
         Collections.sort(folderList, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
         return folderList;
     }
@@ -252,8 +245,9 @@ public class MainActivity extends AppCompatActivity {
     private void checkBatteryOptimization() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                // FIXED: Using absolute path for android.provider.Settings to avoid conflict with SettingsActivity
+                Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                 intent.setData(Uri.parse("package:" + getPackageName()));
                 startActivity(intent);
             }
